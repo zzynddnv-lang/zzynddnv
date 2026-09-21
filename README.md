@@ -1,6 +1,6 @@
 # 🤖 Zuxriddin Yordamchisi - Telegram Business AI Bot
 
-Ushbu bot Telegram Business hisobingizga kelgan yangi xabarlarga sun'iy intellekt (**Groq / Llama 3.1**) orqali avtomatik javob beradi, mijoz haqidagi asosiy ma'lumotlarni (ism, murojaat maqsadi, telefon raqami) aniqlaydi va sizga hisobot tariqasida taqdim etadi.
+Ushbu bot Telegram Business hisobingizga kelgan yangi matnli va **ovozli (voice)** xabarlarga sun'iy intellekt (**Groq Llama 3.1 & Whisper**) orqali avtomatik javob beradi, mijoz haqidagi asosiy ma'lumotlarni aniqlaydi, suhbatlarni **SQLite** bazasida saqlaydi va sizga tayyor hisobot taqdim etadi.
 
 ---
 
@@ -9,64 +9,65 @@ Ushbu bot Telegram Business hisobingizga kelgan yangi xabarlarga sun'iy intellek
 ```text
 ai agent/
 │
-├── zuxriddin_yordamchi_bot.py   # Botning asosiy kodi
-├── .env                         # Maxfiy token va kalitlar (Bot token, Groq API key)
-├── .env.example                 # Tokenlar uchun namuna fayl
+├── zuxriddin_yordamchi_bot.py   # Botning asosiy dastur kodi
+├── database.py                  # SQLite ma'lumotlar bazasi moduli
+├── yordamchi_bot.db             # Doimiy SQLite bazasi (avtomatik yaratiladi)
+├── .env                         # Maxfiy tokenlar (Bot token, Groq API key)
+├── .env.example                 # Sozlamalar namunasi
 ├── requirements.txt             # Kerakli Python kutubxonalari
 ├── run.bat                      # Windows uchun tezkor ishga tushirish fayli
-├── leadlar.csv                  # Mijozlar bazasi (bot ishga tushgach avtomatik yaratiladi)
-├── .gitignore                   # Git uchun e'tiborsiz qoldiriladigan fayllar
-└── README.md                    # Loyiha bo'yicha to'liq qo'llanma
+├── leadlar.csv                  # Mijozlar bazasi zaxirasi (Excel)
+├── .gitignore                   # Maxfiy va baza fayllarini himoyalash
+└── README.md                    # Loyiha qo'llanmasi
 ```
+
+---
+
+## 🌟 Imkoniyatlar
+
+1. **Telegram Business bilan to'liq integratsiya:** Shaxsiy akkauntingizga kelgan yangi xabarlarga avtomatik javob beradi.
+2. **🎙 Ovozli xabarlarni tushunish (Voice-to-Text):** Mijoz ovozli xabar (voice note) yoki audio yuborsa, **Groq Whisper** modeli uni tezkorlik bilan matnga aylantiradi va muloqot uzilmaydi.
+3. **💾 Doimiy xotira (SQLite):** Bot o'chib yonsa ham suhbatlar tarixi va mijozlar holati saqlanib qoladi.
+4. **🔒 Poyga holatidan himoya (Concurrency Lock):** Ketma-ket kelgan xabarlar tartib bilan ishlanadi.
+5. **🛡 Xavfsiz JSON parser:** Mijozga hech qachon xom dasturchi kodlari ko'rinib qolmaydi.
+6. **👑 Bot egasi uchun buyruqlar:**
+   - `/leads` — Oxirgi kelgan 5 ta mijozni botda ko'rish.
+   - `/stats` — Baza statistikasi (jami leadlar, faol va yakunlangan suhbatlar).
+   - `/reset <chat_id>` — Xohlagan chatni qayta faollashtirish (sinovlar uchun).
+   - `/help` — Foydalanish bo'yicha yo'riqnoma.
 
 ---
 
 ## ⚙️ O'rnatish va Sozlash
 
 ### 1. Kutubxonalarni o'rnatish
-VS Code terminalida quyidagi buyruqni bering:
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 2. Sozlamalarni tekshirish (.env)
-Loyihadagi `.env` faylini oching va kerak bo'lsa sozlamalarni o'zgartiring:
-- `BOT_TOKEN`: Telegram @BotFather bergan token.
-- `GROQ_API_KEY`: Groq platformasidan olingan API kalit.
-- `EGA_ISMI`: Sizning ismingiz (bot o'zini shu ism bilan tanishtiradi).
-- `MODEL`: Groq modeli (standart: `llama-3.1-8b-instant`).
+`.env` faylida o'zingizning bot tokeningiz va Groq kalitingiz borligiga ishonch hosil qiling:
+```env
+BOT_TOKEN=8765266953:AAED...
+GROQ_API_KEY=gsk_...
+EGA_ISMI=Zuxriddin
+MODEL=llama-3.1-8b-instant
+```
 
 ---
 
 ## 🚀 Ishga tushirish
 
-Ikkita qulay usuldan birini tanlang:
-
-### 1-usul: Tayyor fayl orqali (eng oson)
-Papkadagi **`run.bat`** faylini ikki marta bosing. Konsol oynasi ochilib, bot avtomatik ishga tushadi.
-
-### 2-usul: VS Code terminali orqali
-Terminalda quyidagi buyruqni bajaring:
-```bash
-python zuxriddin_yordamchi_bot.py
-```
+1. **Eng oson usul:** Papkadagi **`run.bat`** faylini ikki marta bosing.
+2. **Terminal orqali:**
+   ```bash
+   python zuxriddin_yordamchi_bot.py
+   ```
 
 ---
 
-## 📲 Telegram Business-ga ulash bo'yicha qo'llanma
+## 📲 Telegram Business-ga ulash
 
-Bot sizning shaxsiy Telegram profilingizga kelgan xabarlarga javob berishi uchun quyidagi bosqichlarni bajaring:
-
-1. **Telegram Premium** obunasiga ega bo'lishingiz kerak.
-2. Telegram dasturida **Sozlamalar (Settings)** bo'limiga kiring.
-3. **Telegram Business** -> **Chatbotlar (Chatbots)** bo'limini oching.
-4. Qidiruvga botingizning username'ini (masalan: `@sizning_botingiz`) yozing va uni tanlang.
-5. Botga xabarlarni o'qish va javob yuborish ruxsatini bering.
-6. **MUHIM:** Bot sizga yangi mijozlar hisobotini yuborishi uchun o'zingiz Telegram orqali shu botga kirib **/start** tugmasini bosib qo'ying.
-
----
-
-## 📊 Natijalar qayerga saqlanadi?
-
-1. **Telegram orqali:** Suhbat yakunlanishi bilan bot sizning shaxsiy chatingizga mijoz haqida hisobot xabarini yuboradi.
-2. **Excel/CSV orqali:** Papkada avtomatik tarzda **`leadlar.csv`** fayli shakllanadi va har bir yangi murojaat jadvalga yozib boriladi.
+1. Telegram dasturida **Sozlamalar** -> **Telegram Business** -> **Chatbotlar** bo'limiga kiring.
+2. O'zingizning botingizni tanlang va ruxsat bering.
+3. Botingiz sizga hisobot yubora olishi uchun botning o'ziga kirib **/start** tugmasini bosing.
