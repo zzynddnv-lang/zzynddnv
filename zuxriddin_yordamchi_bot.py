@@ -1,13 +1,13 @@
 """
-ZUXRIDDIN YORDAMCHISI - Telegram Business bot (Groq / Llama asosida)
-Mukammallashtirilgan va xavfsiz versiya (Production-ready)
+ZUXRIDDIN YORDAMCHISI - Telegram Business bot (Groq Llama 3.1 & Whisper)
+Doimiy xotira (SQLite) va Ovozli xabarlarni tushunish (Voice-to-Text) tizimi bilan.
 
 O'rnatish:
     pip install -r requirements.txt
 
 Ishga tushirish:
     python zuxriddin_yordamchi_bot.py
-    yoki run.bat faylini ikki marta bosing.
+    yoki run.bat faylini bosing.
 """
 
 import asyncio
@@ -36,6 +36,8 @@ except ModuleNotFoundError as exc:
         "pip install -r requirements.txt"
     ) from exc
 
+import database as db
+
 
 # =====================================================================
 #  SOZLAMALAR (.env faylidan o'qiladi)
@@ -45,12 +47,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 EGA_ISMI = os.getenv("EGA_ISMI", "Zuxriddin")
 MODEL = os.getenv("MODEL", "llama-3.1-8b-instant")
+WHISPER_MODEL = "whisper-large-v3-turbo"
 
 # Fayllar saqlanadigan asosiy papka
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LEADLAR_FAYLI = os.path.join(BASE_DIR, "leadlar.csv")
 
-# Suhbat tarixi hajmi (tokenlarni tejash va tezlik uchun)
+# Suhbat tarixi hajmi (tokenlarni tejash uchun)
 MAX_TARIX = 12
 
 # =====================================================================
@@ -94,19 +97,14 @@ bot = None
 dp = Dispatcher()
 groq_client = None
 
-# Operativ xotira va muloqot boshqaruvi
-suhbatlar: dict[int, list] = {}
-tugaganlar: set[int] = set()
+# Xotira va muloqot boshqaruvi
 egalar: dict[str, int] = {}
-
-# Har bir chat uchun alohida lock (poyga holatini oldini olish)
 chat_locks = defaultdict(asyncio.Lock)
-# CSV faylga xavfsiz yozish uchun lock
 csv_lock = asyncio.Lock()
 
 
 def init_runtime():
-    """Bot va Groq API klientini yaratadi."""
+    """Bot va Groq API klientini yaratadi hamda bazani tekshiradi."""
     global bot, dp, groq_client
 
     if not BOT_TOKEN:
@@ -121,6 +119,9 @@ def init_runtime():
     if groq_client is None:
         groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
+    # SQLite bazasini initsializatsiya qilish
+    db.init_db()
+
     return bot, dp, groq_client
 
 
@@ -131,11 +132,9 @@ def toza_javob_ajratish(matn: str) -> tuple[str, bool, str]:
     """
     matn = matn.strip()
     
-    # Agar model javobni markdown code block ichiga olgan bo'lsa
     if "```" in matn:
         matn = re.sub(r"```(?:json)?", "", matn).strip()
 
-    # 1-urinish: Standart JSON parsing
     boshi = matn.find("{")
     oxiri = matn.rfind("}")
     if boshi != -1 and oxiri != -1 and oxiri > boshi:
@@ -149,7 +148,6 @@ def toza_javob_ajratish(matn: str) -> tuple[str, bool, str]:
         except Exception:
             pass
 
-    # 2-urinish: Regex orqali "javob" maydonini ajratish
     match_javob = re.search(r'"javob"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', matn)
     if match_javob:
         try:
@@ -161,7 +159,6 @@ def toza_javob_ajratish(matn: str) -> tuple[str, bool, str]:
         xulosa = match_xulosa.group(1) if match_xulosa else ""
         return javob.strip(), tayyor, xulosa.strip()
 
-    # 3-urinish: Agar model JSON qaytarmasa, qavs va skript belgilarini tozalash
     tozalangan = re.sub(r'["{}\[\]]', '', matn).strip()
     if tozalangan:
         return tozalangan, False, ""
@@ -189,6 +186,25 @@ async def yubor(message: types.Message, matn: str):
         logging.error("Xabar yuborishda Telegram API xatosi (chat_id: %s): %s", message.chat.id, e)
 
 
+async def ovozni_matnga_aylantirish(file_id: str, fayl_nomi: str = "voice.ogg") -> str:
+    """Telegram ovozli xabarini yuklab olib, Groq Whisper orqali matnga o'giradi."""
+    try:
+        file_info = await bot.get_file(file_id)
+        file_bytes_io = await bot.download_file(file_info.file_path)
+        audio_bytes = file_bytes_io.read()
+
+        transcription = await groq_client.audio.transcriptions.create(
+            file=(fayl_nomi, audio_bytes),
+            model=WHISPER_MODEL,
+        )
+        matn = transcription.text.strip()
+        logging.info("Ovoz matnga aylantirildi: '%s'", matn)
+        return matn
+    except Exception as e:
+        logging.error("Whisper orqali ovozni tanishda xatolik: %s", e)
+        return ""
+
+
 async def ai_javob(tarix: list) -> tuple[str, bool, str]:
     """Groq API orqali Llama modelidan javob oladi."""
     messages = [{"role": "system", "content": TIZIM_KORSATMASI}] + tarix
@@ -202,8 +218,20 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
     return toza_javob_ajratish(matn)
 
 
-async def leadni_saqla(mijoz: types.User, xulosa: str):
-    """Lead (mijoz ma'lumotlari)ni CSV faylga asinxron va xavfsiz saqlaydi."""
+async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
+    """Leadni ham SQLite bazaga, ham CSV zaxira fayliga saqlaydi."""
+    username = f"@{mijoz.username}" if mijoz.username else ""
+    
+    # 1) SQLite bazaga saqlash
+    db.save_lead(
+        chat_id=chat_id,
+        full_name=mijoz.full_name,
+        username=username,
+        telegram_id=mijoz.id,
+        xulosa=xulosa,
+    )
+
+    # 2) CSV zaxira fayliga yozish
     async with csv_lock:
         yangi_fayl = not os.path.exists(LEADLAR_FAYLI)
         try:
@@ -214,7 +242,7 @@ async def leadni_saqla(mijoz: types.User, xulosa: str):
                 yozuvchi.writerow([
                     datetime.now().strftime("%Y-%m-%d %H:%M"),
                     mijoz.full_name,
-                    f"@{mijoz.username}" if mijoz.username else "",
+                    username,
                     mijoz.id,
                     xulosa,
                 ])
@@ -246,63 +274,61 @@ async def start_komandasi(message: types.Message):
     """Bot egasi /start bosganida status xabari."""
     await message.answer(
         f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
-        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) Telegram Business shaxsiy yordamchingizman.\n\n"
+        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) Telegram Business shaxsiy yordamchingizman.\n"
+        "Men matnli va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
         "Buyruqlar:\n"
         "• /leads — Oxirgi kelgan mijozlar ro'yxati\n"
-        "• /stats — Umumiy statistika\n"
-        "• /help — Yordam va sozlamalar",
+        "• /stats — Umumiy statistika (Baza bo'yicha)\n"
+        "• /reset &lt;chat_id&gt; — Chatni qayta faollashtirish\n"
+        "• /help — Yordam va qo'llanma",
         parse_mode="HTML"
     )
 
 
 @dp.message(Command("leads"))
 async def leads_komandasi(message: types.Message):
-    """Oxirgi kelgan mijozlarni ko'rsatish."""
-    if not os.path.exists(LEADLAR_FAYLI):
+    """Oxirgi kelgan mijozlarni SQLite bazasidan ko'rsatish."""
+    oxirgi_leadlar = db.get_recent_leads(limit=5)
+    if not oxirgi_leadlar:
         await message.answer("Hozircha yangi murojaatlar (leadlar) mavjud emas.")
         return
 
-    try:
-        oxirgi_leadlar = []
-        with open(LEADLAR_FAYLI, "r", encoding="utf-8-sig") as f:
-            reader = list(csv.reader(f))
-            qatorlar = [q for q in reader if q and q[0] != "Sana"]
-            oxirgi_leadlar = qatorlar[-5:]
+    javob = "📋 <b>Oxirgi 5 ta murojaat:</b>\n\n"
+    for idx, row in enumerate(oxirgi_leadlar, 1):
+        javob += (
+            f"{idx}. <b>{row['full_name']}</b> ({row['username'] or 'username yoq'}) "
+            f"— <i>{row['created_at']}</i>\n"
+            f"📝 {row['xulosa']}\n\n"
+        )
 
-        if not oxirgi_leadlar:
-            await message.answer("Mijozlar bazasi hali bo'sh.")
-            return
-
-        javob = "📋 <b>Oxirgi 5 ta murojaat:</b>\n\n"
-        for idx, row in enumerate(reversed(oxirgi_leadlar), 1):
-            sana, ism, user, uid, xulosa = (row + [""] * 5)[:5]
-            javob += f"{idx}. <b>{ism}</b> ({user}) — <i>{sana}</i>\n📝 {xulosa}\n\n"
-
-        await message.answer(javob, parse_mode="HTML")
-    except Exception as e:
-        await message.answer(f"Leadlarni o'qishda xatolik: {e}")
+    await message.answer(javob, parse_mode="HTML")
 
 
 @dp.message(Command("stats"))
 async def stats_komandasi(message: types.Message):
-    """Statistika buyrug'i."""
-    lead_soni = 0
-    if os.path.exists(LEADLAR_FAYLI):
-        with open(LEADLAR_FAYLI, "r", encoding="utf-8-sig") as f:
-            rows = [r for r in csv.reader(f) if r and r[0] != "Sana"]
-            lead_soni = len(rows)
-
-    faol_suhbatlar = len(suhbatlar)
-    tugagan_suhbatlar = len(tugaganlar)
-
+    """Statistika buyrug'i (SQLite bazasidan)."""
+    stats = db.get_stats()
     matn = (
-        "📊 <b>Bot Statistikasi</b>\n\n"
-        f"👥 Jami qabul qilingan leadlar: <b>{lead_soni} ta</b>\n"
-        f"💬 Hozirgi faol suhbatlar: <b>{faol_suhbatlar} ta</b>\n"
-        f"✅ Yakunlangan suhbatlar: <b>{tugagan_suhbatlar} ta</b>\n"
-        f"🧠 Ishlatilayotgan AI model: <code>{MODEL}</code>"
+        "📊 <b>Bot Statistikasi (SQLite Baza)</b>\n\n"
+        f"👥 Jami qabul qilingan leadlar: <b>{stats['total_leads']} ta</b>\n"
+        f"💬 Faol suhbatlar: <b>{stats['active_chats']} ta</b>\n"
+        f"✅ Yakunlangan suhbatlar: <b>{stats['completed_chats']} ta</b>\n\n"
+        f"🧠 Matn modeli: <code>{MODEL}</code>\n"
+        f"🎙 Ovoz modeli: <code>{WHISPER_MODEL}</code>"
     )
     await message.answer(matn, parse_mode="HTML")
+
+
+@dp.message(Command("reset"))
+async def reset_komandasi(message: types.Message):
+    """Chat holatini qayta faollashtirish (sinovlar uchun)."""
+    qismlar = message.text.split()
+    if len(qismlar) > 1 and qismlar[1].lstrip("-").isdigit():
+        target_id = int(qismlar[1])
+        db.reset_chat(target_id)
+        await message.answer(f"✅ Chat <code>{target_id}</code> qayta faollashtirildi. Endi bot unga yana javob beradi.", parse_mode="HTML")
+    else:
+        await message.answer("Iltimos, chat ID sini kiriting. Masalan:\n<code>/reset 12345678</code>", parse_mode="HTML")
 
 
 @dp.message(Command("help"))
@@ -311,9 +337,9 @@ async def help_komandasi(message: types.Message):
     await message.answer(
         "💡 <b>Botdan foydalanish bo'yicha qo'llanma:</b>\n\n"
         "1. Telegram Business sozlamalarida ushbu bot Chatbot sifatida ulangan bo'lishi kerak.\n"
-        "2. Yangi mijoz shaxsiy akkauntingizga yozganda AI avtomatik javob beradi.\n"
-        "3. Suhbat yakunlanishi bilan sizga hisobot keladi va CSV faylga saqlanadi.\n"
-        "4. Agar siz mijozga o'zingiz yozsangiz, bot avtomatik aralashishni to'xtatadi.",
+        "2. Yangi mijoz matn yoki <b>ovozli xabar (voice)</b> yuborganida AI avtomatik tushunadi va javob beradi.\n"
+        "3. Suhbat yakunlanishi bilan sizga hisobot keladi va SQLite hamda CSV faylga saqlanadi.\n"
+        "4. Agar siz mijozga o'zingiz yozsangiz, bot avtomatik chekinadi.",
         parse_mode="HTML"
     )
 
@@ -335,53 +361,65 @@ async def xabar_keldi(message: types.Message):
     ega_id = await ega_id_ol(message.business_connection_id)
     chat_id = message.chat.id
 
-    # Agar bot egasi o'zi yozsa, AI suhbatga aralashmaydi
+    # Agar bot egasi o'zi yozsa, AI suhbatga aralashmaydi va yakunlangan deb belgilaydi
     if message.from_user is None or message.from_user.id == ega_id:
-        tugaganlar.add(chat_id)
+        db.mark_chat_completed(chat_id)
         return
 
-    # Agar bu odam bilan suhbat yakunlangan bo'lsa
-    if chat_id in tugaganlar:
+    # Agar bu mijoz bilan suhbat avval yakunlangan bo'lsa
+    if db.is_chat_completed(chat_id):
         return
 
-    # Faqat matnli xabarlarni qabul qiladi
-    if not message.text:
-        await yubor(message, "Iltimos, savolingizni matn ko'rinishida yozing.")
+    # 1) Xabar turini aniqlash (Matn yoki Ovoz)
+    xabar_matni = ""
+    if message.text:
+        xabar_matni = message.text.strip()
+    elif message.voice:
+        # Telegram ovozli xabarini (voice) Whisper orqali matnga o'giramiz
+        xabar_matni = await ovozni_matnga_aylantirish(message.voice.file_id, "voice.ogg")
+        if not xabar_matni:
+            await yubor(message, "Kechirasiz, ovozli xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
+            return
+    elif message.audio:
+        # Oddiy audio faylni Whisper orqali matnga o'giramiz
+        xabar_matni = await ovozni_matnga_aylantirish(message.audio.file_id, "audio.mp3")
+        if not xabar_matni:
+            await yubor(message, "Kechirasiz, audio xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
+            return
+    else:
+        await yubor(message, "Iltimos, savolingizni matn yoki ovozli xabar ko'rinishida yuboring.")
         return
 
-    # Poyga holatini (race condition) oldini olish uchun chat lock ishlatamiz
+    # 2) Poyga holatini (race condition) oldini olish uchun chat lock
     async with chat_locks[chat_id]:
-        tarix = suhbatlar.setdefault(chat_id, [])
+        # Suhbat tarixini bazadan olish
+        tarix = db.get_chat_history(chat_id, limit=MAX_TARIX)
 
         # Birinchi murojaat bo'lsa salomlashadi
         if not tarix:
-            tarix.append({"role": "user", "content": message.text})
-            tarix.append({"role": "assistant", "content": SALOM_MATNI})
+            db.add_message(chat_id, "user", xabar_matni)
+            db.add_message(chat_id, "assistant", SALOM_MATNI)
             await yubor(message, SALOM_MATNI)
             return
 
-        # Suhbat tarixini qisqartirish (Sliding window)
-        if len(tarix) > MAX_TARIX:
-            tarix = tarix[-MAX_TARIX:]
-            suhbatlar[chat_id] = tarix
-
         # Keyingi xabarlar uchun Groq AI dan javob olinadi
-        tarix.append({"role": "user", "content": message.text})
+        db.add_message(chat_id, "user", xabar_matni)
+        tarix.append({"role": "user", "content": xabar_matni})
+
         try:
             javob, tayyor, xulosa = await ai_javob(tarix)
         except Exception as xato:
             logging.error("Groq xatosi: %s", xato)
-            tarix.pop()
             await yubor(message, "Kechirasiz, hozir texnik yangilanish ketmoqda. Birozdan so'ng yana yozing.")
             return
 
-        tarix.append({"role": "assistant", "content": javob})
+        db.add_message(chat_id, "assistant", javob)
         await yubor(message, javob)
 
         # Agar kerakli ma'lumotlar yig'ilib bo'lgan bo'lsa
         if tayyor:
-            tugaganlar.add(chat_id)
-            await leadni_saqla(message.from_user, xulosa)
+            db.mark_chat_completed(chat_id)
+            await leadni_saqla(chat_id, message.from_user, xulosa)
             await egaga_xabar(ega_id, message.from_user, xulosa)
 
 
@@ -394,7 +432,6 @@ async def main():
     bot, dp, groq_client = init_runtime()
     logging.info("Bot muvaffaqiyatli ishga tushdi! To'xtatish uchun: Ctrl + C")
     
-    # MUHIM TUZATISH: Telegram Business update'larini majburiy ro'yxatdan o'tkazish
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),

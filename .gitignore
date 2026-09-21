@@ -1,13 +1,17 @@
 # Muhit va maxfiy ma'lumotlar
 .env
 
+# Ma'lumotlar bazalari
+*.db
+*.sqlite3
+
 # Python kesh fayllari
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
 
-# Yig'ilgan mijozlar bazasi
+# Yig'ilgan mijozlar bazasi (CSV)
 leadlar.csv
 
 # Microsoft Office vaqtinchalik fayllari
