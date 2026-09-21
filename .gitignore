@@ -1,0 +1,24 @@
+# Muhit va maxfiy ma'lumotlar
+.env
+
+# Python kesh fayllari
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Yig'ilgan mijozlar bazasi
+leadlar.csv
+
+# Microsoft Office vaqtinchalik fayllari
+~$*
+*.tmp
+
+# Virtual muhitlar
+venv/
+.venv/
+env/
+
+# Muhit va IDE sozlamalari
+.vscode/
+.idea/
