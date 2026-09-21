@@ -1,5 +1,5 @@
 """
-ZUXRIDDIN YORDAMCHISI - Telegram Business bot (Groq Llama 3.1 & Whisper)
+ZUXRIDDIN YORDAMCHISI - Telegram Business bot (Groq Llama / Qwen & Whisper)
 Doimiy xotira (SQLite) va Ovozli xabarlarni tushunish (Voice-to-Text) tizimi bilan.
 
 O'rnatish:
@@ -46,7 +46,9 @@ import database as db
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 EGA_ISMI = os.getenv("EGA_ISMI", "Zuxriddin")
-MODEL = os.getenv("MODEL", "llama-3.1-8b-instant")
+
+# O'zbek tilida yuqori aniqlikda ishlovchi model
+MODEL = os.getenv("MODEL", "qwen/qwen3.8-27b")
 WHISPER_MODEL = "whisper-large-v3-turbo"
 
 # Fayllar saqlanadigan asosiy papka
@@ -77,7 +79,9 @@ Vazifang: suhbat orqali quyidagilarni aniqlab, {EGA_ISMI}ga yetkazish:
 Qoidalar:
 - O'zbek tilida, samimiy va lo'nda gapir (1-3 gap). Odam boshqa tilda yozsa, o'sha tilda javob ber.
 - Bir vaqtda faqat bitta savol ber.
-- Narx, chegirma, muddat va boshqa narsalarni o'ylab topma va va'da qilma. Bilmasang: "Buni {EGA_ISMI} o'zi aniq aytadi" de.
+- Agar odam 'Qo'lingdan nima keladi?' yoki 'Nima ish qilasan?' deb so'rasa: 'Men {EGA_ISMI}ning yordamchisiman, sizning murojaatingiz va savollaringizni qabul qilib, {EGA_ISMI}ga aniq yetkazaman' deb tushuntir va qanday masalada yozayotganini so'ra.
+- Agar '{EGA_ISMI} kim?' deb so'rasa: '{EGA_ISMI} mening rahbarim. Siz u kishiga qanday masalada murojaat qilmoqchi edingiz?' deb chiroyli yo'naltir.
+- Narx, chegirma, muddat va boshqa narsalarni o'ylab topma va va'da qilma. Bilmasang: 'Buni {EGA_ISMI} o'zi aniq aytadi' de.
 - O'zingni {EGA_ISMI}ning yordamchisi deb tanishtir. Odam so'rasa, sen sun'iy intellekt ekaningni yashirma.
 - Yetarli ma'lumot yig'ilgach (kamida masala va maqsad ma'lum bo'lsa), suhbatni yakunla va {EGA_ISMI} tez orada bog'lanishini ayt.
 
@@ -206,16 +210,26 @@ async def ovozni_matnga_aylantirish(file_id: str, fayl_nomi: str = "voice.ogg") 
 
 
 async def ai_javob(tarix: list) -> tuple[str, bool, str]:
-    """Groq API orqali Llama modelidan javob oladi."""
+    """Groq API orqali javob oladi (model fallback bilan)."""
     messages = [{"role": "system", "content": TIZIM_KORSATMASI}] + tarix
-    resp = await groq_client.chat.completions.create(
-        model=MODEL,
-        temperature=0.3,
-        max_tokens=600,
-        messages=messages,
-    )
-    matn = resp.choices[0].message.content.strip()
-    return toza_javob_ajratish(matn)
+    modellar = [MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+    oxirgi_xato = None
+
+    for m in modellar:
+        try:
+            resp = await groq_client.chat.completions.create(
+                model=m,
+                temperature=0.3,
+                max_tokens=600,
+                messages=messages,
+            )
+            matn = resp.choices[0].message.content.strip()
+            return toza_javob_ajratish(matn)
+        except Exception as e:
+            oxirgi_xato = e
+            logging.warning("Model '%s' da xato yuz berdi: %s. Zaxira model tekshirilmoqda...", m, e)
+
+    raise oxirgi_xato or RuntimeError("Barcha modellar xato berdi")
 
 
 async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
@@ -325,8 +339,8 @@ async def reset_komandasi(message: types.Message):
     qismlar = message.text.split()
     if len(qismlar) > 1 and qismlar[1].lstrip("-").isdigit():
         target_id = int(qismlar[1])
-        db.reset_chat(target_id)
-        await message.answer(f"✅ Chat <code>{target_id}</code> qayta faollashtirildi. Endi bot unga yana javob beradi.", parse_mode="HTML")
+        db.clear_chat_history(target_id)
+        await message.answer(f"✅ Chat <code>{target_id}</code> xotirasi tozalandi va qayta faollashtirildi. Endi bot unga yana yangitdan javob beradi.", parse_mode="HTML")
     else:
         await message.answer("Iltimos, chat ID sini kiriting. Masalan:\n<code>/reset 12345678</code>", parse_mode="HTML")
 
@@ -410,7 +424,8 @@ async def xabar_keldi(message: types.Message):
             javob, tayyor, xulosa = await ai_javob(tarix)
         except Exception as xato:
             logging.error("Groq xatosi: %s", xato)
-            await yubor(message, "Kechirasiz, hozir texnik yangilanish ketmoqda. Birozdan so'ng yana yozing.")
+            db.delete_last_message(chat_id)
+            await yubor(message, "Kechirasiz, tizimda vaqtinchalik uzilish bo'ldi. Birozdan so'ng yana yozing.")
             return
 
         db.add_message(chat_id, "assistant", javob)

@@ -83,18 +83,39 @@ def add_message(chat_id: int, role: str, content: str):
     vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         cursor = conn.cursor()
-        # Chat mavjudligini ta'minlash
         cursor.execute("""
             INSERT INTO chats (chat_id, is_completed, created_at, updated_at)
             VALUES (?, 0, ?, ?)
             ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?
         """, (chat_id, vaqt, vaqt, vaqt))
         
-        # Xabarni yozish
         cursor.execute("""
             INSERT INTO messages (chat_id, role, content, created_at)
             VALUES (?, ?, ?, ?)
         """, (chat_id, role, content, vaqt))
+        conn.commit()
+
+
+def delete_last_message(chat_id: int):
+    """Xatolik yuz berganda oxirgi xabarni o'chiradi."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM messages 
+            WHERE id = (SELECT id FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1)
+        """, (chat_id,))
+        conn.commit()
+
+
+def clear_chat_history(chat_id: int):
+    """Chat xabarlar tarixini tozalaydi va holatni faollashtiradi."""
+    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
+        cursor.execute("""
+            UPDATE chats SET is_completed = 0, updated_at = ? WHERE chat_id = ?
+        """, (vaqt, chat_id))
         conn.commit()
 
 
@@ -119,7 +140,7 @@ def mark_chat_completed(chat_id: int):
 
 
 def reset_chat(chat_id: int):
-    """Chatni qayta faollashtiradi (yana yangitdan suhbat qurish uchun)."""
+    """Chatni qayta faollashtiradi."""
     vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         cursor = conn.cursor()
