@@ -84,11 +84,15 @@ Qoidalar:
 - Narx, chegirma, muddat va boshqa narsalarni o'ylab topma va va'da qilma. Bilmasang: 'Buni {EGA_ISMI} o'zi aniq aytadi' de.
 - O'zingni {EGA_ISMI}ning yordamchisi deb tanishtir. Odam so'rasa, sen sun'iy intellekt ekaningni yashirma.
 - Yetarli ma'lumot yig'ilgach (kamida masala va maqsad ma'lum bo'lsa), suhbatni yakunla va {EGA_ISMI} tez orada bog'lanishini ayt.
+- Agar odam bilan avval suhbat yakunlangan bo'lsa va u yana yozsa (masalan: "rahmat", "kutaman", "qachon bog'lanadi?", yangi savol yoki qo'shimcha ma'lumot):
+  - Har doim samimiy va xushmuomala javob qaytar (masalan: "Arziydi! {EGA_ISMI} tez orada siz bilan bog'lanadi", "Qo'shimcha savolingizni {EGA_ISMI}ga yetkazib qo'yaman").
+  - Agar yangi yoki yangilangan ma'lumot bersa, uni xulosaga qo'shib yoz va "tayyor": true qil.
+  - Hech qachon odamni javobsiz qoldirma.
 
 Javobni FAQAT quyidagi JSON ko'rinishida qaytar, oldidan yoki ketidan hech qanday boshqa matn yozma:
 {{"javob": "odamga yuboriladigan matn", "tayyor": false, "xulosa": ""}}
 
-Suhbat yakunlanganda "tayyor" ni true qil va "xulosa" ga {EGA_ISMI} uchun qisqa hisobot yoz
+Suhbat yakunlanganda yoki muhim ma'lumot yig'ilganda "tayyor" ni true qil va "xulosa" ga {EGA_ISMI} uchun qisqa hisobot yoz
 (ism, masala, maqsad, aloqa)."""
 
 
@@ -279,6 +283,21 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
         logging.warning("Sizga xabar yuborib bo'lmadi. Bot chatiga kirib /start bosing. (%s)", xato)
 
 
+async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, xulosa: str):
+    """Mijoz qo'shimcha ma'lumot yozganda bot egasiga bildirishnoma."""
+    username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
+    matn = (
+        "🔔 <b>Mijozdan qo'shimcha ma'lumot / xabar:</b>\n\n"
+        f"👤 <b>Mijoz:</b> {mijoz.full_name} ({username})\n"
+        f"🆔 <b>ID:</b> <code>{mijoz.id}</code>\n\n"
+        f"📝 <b>Yangilangan xulosa:</b>\n{xulosa}"
+    )
+    try:
+        await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
+    except Exception as xato:
+        logging.warning("Sizga qo'shimcha xabar yuborib bo'lmadi. (%s)", xato)
+
+
 # =====================================================================
 #  BOT EGASI UCHUN ADMIN BUYRUQLARI
 # =====================================================================
@@ -340,7 +359,7 @@ async def reset_komandasi(message: types.Message):
     if len(qismlar) > 1 and qismlar[1].lstrip("-").isdigit():
         target_id = int(qismlar[1])
         db.clear_chat_history(target_id)
-        await message.answer(f"✅ Chat <code>{target_id}</code> xotirasi tozalandi va qayta faollashtirildi. Endi bot unga yana yangitdan javob beradi.", parse_mode="HTML")
+        await message.answer(f"✅ Chat <code>{target_id}</code> xotirasi tozalandi va qayta faollashtirildi.", parse_mode="HTML")
     else:
         await message.answer("Iltimos, chat ID sini kiriting. Masalan:\n<code>/reset 12345678</code>", parse_mode="HTML")
 
@@ -353,7 +372,8 @@ async def help_komandasi(message: types.Message):
         "1. Telegram Business sozlamalarida ushbu bot Chatbot sifatida ulangan bo'lishi kerak.\n"
         "2. Yangi mijoz matn yoki <b>ovozli xabar (voice)</b> yuborganida AI avtomatik tushunadi va javob beradi.\n"
         "3. Suhbat yakunlanishi bilan sizga hisobot keladi va SQLite hamda CSV faylga saqlanadi.\n"
-        "4. Agar siz mijozga o'zingiz yozsangiz, bot avtomatik chekinadi.",
+        "4. Suhbat yakunlanganidan keyin ham mijoz yangi savol bersa, bot unga muloyim javob qaytaradi va yangi ma'lumotlarni sizga yetkazadi.\n"
+        "5. Agar siz mijozga o'zingiz yozsangiz, bot sizning xabaringizga xalaqit bermaydi.",
         parse_mode="HTML"
     )
 
@@ -375,13 +395,8 @@ async def xabar_keldi(message: types.Message):
     ega_id = await ega_id_ol(message.business_connection_id)
     chat_id = message.chat.id
 
-    # Agar bot egasi o'zi yozsa, AI suhbatga aralashmaydi va yakunlangan deb belgilaydi
+    # Agar bot egasi o'zi yozsa, bot o'z egasiga javob qaytarmaydi
     if message.from_user is None or message.from_user.id == ega_id:
-        db.mark_chat_completed(chat_id)
-        return
-
-    # Agar bu mijoz bilan suhbat avval yakunlangan bo'lsa
-    if db.is_chat_completed(chat_id):
         return
 
     # 1) Xabar turini aniqlash (Matn yoki Ovoz)
@@ -406,6 +421,11 @@ async def xabar_keldi(message: types.Message):
 
     # 2) Poyga holatini (race condition) oldini olish uchun chat lock
     async with chat_locks[chat_id]:
+        # Agar suhbatdan buyon 12 soatdan ko'p vaqt o'tgan bo'lsa, yangi sessiya sifatida yangilaymiz
+        oxirgi_vaqt = db.get_last_message_time(chat_id)
+        if oxirgi_vaqt and (datetime.now() - oxirgi_vaqt).total_seconds() > 12 * 3600:
+            db.clear_chat_history(chat_id)
+
         # Suhbat tarixini bazadan olish
         tarix = db.get_chat_history(chat_id, limit=MAX_TARIX)
 
@@ -431,11 +451,18 @@ async def xabar_keldi(message: types.Message):
         db.add_message(chat_id, "assistant", javob)
         await yubor(message, javob)
 
-        # Agar kerakli ma'lumotlar yig'ilib bo'lgan bo'lsa
-        if tayyor:
-            db.mark_chat_completed(chat_id)
-            await leadni_saqla(chat_id, message.from_user, xulosa)
-            await egaga_xabar(ega_id, message.from_user, xulosa)
+        # Agar ma'lumotlar yig'ilgan yoki yangilangan bo'lsa
+        if tayyor and xulosa:
+            eski_xulosa = db.get_last_lead_summary(chat_id)
+            if not eski_xulosa:
+                # Birinchi marta to'liq hisobot shakllandi
+                db.mark_chat_completed(chat_id)
+                await leadni_saqla(chat_id, message.from_user, xulosa)
+                await egaga_xabar(ega_id, message.from_user, xulosa)
+            elif xulosa.strip() != eski_xulosa.strip():
+                # Yangi yoki qo'shimcha ma'lumot kiritildi
+                await leadni_saqla(chat_id, message.from_user, xulosa)
+                await egaga_qoshimcha_xabar(ega_id, message.from_user, xulosa)
 
 
 # =====================================================================

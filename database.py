@@ -6,7 +6,7 @@ Suhbatlar tarixi, mijozlar holati va leadlarni doimiy saqlash uchun.
 import sqlite3
 import os
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FAYLI = os.path.join(BASE_DIR, "yordamchi_bot.db")
@@ -117,6 +117,37 @@ def clear_chat_history(chat_id: int):
             UPDATE chats SET is_completed = 0, updated_at = ? WHERE chat_id = ?
         """, (vaqt, chat_id))
         conn.commit()
+
+
+def get_last_message_time(chat_id: int) -> Optional[datetime]:
+    """Chatdagi eng oxirgi xabar vaqtini oladi."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT created_at FROM messages 
+            WHERE chat_id = ? 
+            ORDER BY id DESC LIMIT 1
+        """, (chat_id,))
+        row = cursor.fetchone()
+        if row and row["created_at"]:
+            try:
+                return datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return None
+        return None
+
+
+def get_last_lead_summary(chat_id: int) -> Optional[str]:
+    """Chat bo'yicha oxirgi saqlangan lead xulosasini qaytaradi."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT xulosa FROM leads 
+            WHERE chat_id = ? 
+            ORDER BY id DESC LIMIT 1
+        """, (chat_id,))
+        row = cursor.fetchone()
+        return row["xulosa"] if row else None
 
 
 def is_chat_completed(chat_id: int) -> bool:
