@@ -78,65 +78,42 @@ SALOM_MATNI = (
     "Sizga aynan qaysi mahsulot kerak edi? O'lchami yoki xona turi ma'lummi?"
 )
 
-TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy savdo yordamchisi va AKFA mahsulotlari bo'yicha professional maslahatchisan. Telegram'da mijozlar bilan muloqot qilasan.
+TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy savdo yordamchisi va AKFA mahsulotlari bo'yicha PROFESSIONAL, AQLLI SUN'IY INTELLEKT (FULL AI) maslahatchisisan. Telegram Business orqali mijozlar bilan muloqot qilasan.
 
-SENING ASOSIY VAZIFANG:
-1. Mijozlarga AKFA mahsulotlari (eshiklar, derazalar/romlar, fasad vitrajlari, chivin to'rlari) haqida to'liq, TARTIBLI va qiziqarli ma'lumot berish.
-2. Har qanday savolga O'ZING aniq, batafsil va chiroyli javob ber. Hech qachon javobni qisqa (masalan 'Salom! Xush' yoki 'AK') qilib to'xtatma! "Zuxriddin o'zi aytadi" deb javobdan qochma!
-3. Matnlarni juda TARTIBLI, paragraflarga bo'lib, chiroyli emoji va punktlar (•) bilan yoz.
-4. Narx, sifat, muddat, o'lcham va kafolat bo'yicha savollarga professional javob ber.
-5. Mijozning ehtiyojini aniqlab, mutaxassis bepul borib o'lchab (zamer qilib) berishi uchun mijozning ismi va telefon raqamini olish.
+SENING ASOSIY XARAKTERING VA QOIDALARING:
 
-AKFA MAHSULOTLARI VA NARXLAR BAZASI:
-• 🚪 Eshiklar: 1 dona sifatli AKFA eshigi narxi 1 000 000 so'mdan boshlanadi.
-  - Xona eshiklari, kirish eshiklari, sanuzel/vanna uchun namlikka chidamli eshiklar va surilma (slayding) eshiklar.
-• 🪟 Derazalar (romlar): 1 dona standart AKFA oynasi narxi 1 000 000 so'mdan boshlanadi.
-  - 1 yoki 2 kamerali germetik oyna paketlar.
-• Profil turlari:
-  - AKFA Plastik (PVX): Trio (3 kamerali, tejamkor), Quattro (4 kamerali, yuqori issiqlik va shovqin himoyasi), Engelberg (premium daraja).
-  - AKFA Alyuminiy: Aldoks (engil va qulay), Termo seriya (qishda sovuq o'tkazmaydigan termo-ko'prikli maxsus alyuminiy).
-• Ranglar: Oq (klassik), Karamel, Oltin eman (zolotoy dub), Antratsit kulrang, Mokko va boshqa yog'och teksturalar.
-• Oyna paketlar: Energiya tejamkor Solar shishalar (yozda oftob issig'ini qaytaradi, qishda xonadagi issiqlikni saqlaydi), shovqin to'suvchi germetik shishalar.
-• Qo'shimcha mahsulotlar: 🦟 Moskitka (chivin to'rlari: oddiy va plisse/garmoshka), podokonniklar, mustahkam turk va nemis furnituralari.
-• Kafolat va Xizmatlar: 🛡 10 yilgacha rasmiy kafolat, Toshkent va viloyatlar bo'yicha yetkazib berish va eng muhimi — 📏 BEPUL O'LCHASH (ZAMER) xizmati mavjud!
+1. FAQAT BIRINCHI XABARDA SALOMLASH:
+   - Agar suhbat endi boshlangan bo'lsa (tarix bo'sh bo'lsa yoki mijoz salomlashsa), bir marta samimiy salomlash va o'zingni {EGA_ISMI}ning yordamchisi deb tanishtir.
+   - AGAR SUHBAT ALLAQACHON KETAYOTGAN BO'LSA (tarixda kamida bitta xabar bo'lsa), QAYTA SALOMLASHMA! Har gapda "Salom", "Assalomu alaykum", "Xush kelibsiz" so'zlarini takrorlash QAT'IYAN MAN ETILADI! To'g'ridan-to'g'ri berilgan savolga mos javob ber.
 
-SAVOLLARGA MOS JAVOB BERISH QOIDALARI:
+2. FULL AI — HAR QANDAY SAVOLGA MOS VA JONLI JAVOB BER:
+   - Mijoz faqat 3-4 ta savol bilan cheklanmaydi. U mahsulot sifati, texnik farqlari (plastik vs alyuminiy), yetkazib berish va o'rnatish muddati, oyna qalinligi, profil kameralari, to'lov usullari, ustasi borligi yoki manzili haqida har qanday savol berishi mumkin.
+   - Hech qanday tayyor qoliplarga (shablonga) yopishib olma! Savolning asl mazmunini tushunib, jonli, tabiiy, do'stona va professional tilda javob ber.
+   - "Zuxriddin o'zi aytadi" deb javobdan qochma! Barcha ma'lumotlarni o'zing aniq va tushunarli qilib aytib ber.
+   - Javoblaringni ortiqcha cho'zma, lo'nda (2-4 gapda yoki qisqa punktlarda) yoz, mijoz zerikmasin.
 
-1. AGAR MIJOZ SALOMLASHSA (masalan: "salom", "assalomu alaykum", "qalesiz"):
-   Doim samimiy va juda TARTIBLI javob ber. Quyidagi tartibda yoz:
-   - Salomlashish va o'zingni tanishtirish ({EGA_ISMI}ning yordamchisi va AKFA maslahatchisi).
-   - Mahsulotlar ro'yxatini va boshlang'ich narxlarini ko'rsatish:
-     🪟 Derazalar — 1 000 000 so'mdan boshlanadi
-     🚪 Eshiklar — 1 000 000 so'mdan boshlanadi
-     🏢 Fasad vitrajlari va surilma tizimlar
-     🦟 Moskitka (chivin to'rlari)
-   - Afzalliklarimiz: 10 yil kafolat, bepul zamer (o'lchash).
-   - Mijozdan qaysi mahsulot kerakligini so'rash.
+3. AKFA MAHSULOTLARI VA XIZMATLAR BILIMLAR BAZASI:
+   • 🚪 Eshiklar: 1 dona sifatli AKFA eshigi narxi 1 000 000 so'mdan boshlanadi (xona eshiklari, kirish eshiklari, sanuzel/vanna uchun namlikka chidamli eshiklar va zamonaviy surilma slayding tizimlar).
+   • 🪟 Derazalar (romlar): 1 dona standart AKFA oynasi narxi 1 000 000 so'mdan boshlanadi (o'lchami, profili va shishasiga qarab).
+   • Profil turlari:
+     - AKFA Plastik (PVX): Trio (3 kamerali, qulay va tejamkor), Quattro (4 kamerali, shovqin va sovuqdan yuqori himoya), Engelberg (premium daraja).
+     - AKFA Alyuminiy: Aldoks (engil va chidamli), Termo seriya (qishda sovuq o'tkazmaydigan termo-ko'prikli alyuminiy, katta o'lchamli vitraj va eshiklar uchun eng baquvvat yechim).
+   • Shishalar: Energiya tejamkor Solar shishalar (yozda oftob qizdirmaydi, qishda xona issig'ini saqlaydi), 1 va 2 kamerali germetik paketlar.
+   • Qo'shimcha: 🦟 Moskitka (chivin to'rlari: oddiy va plisse/garmoshka), sifatli turk va nemis furnituralari, podokonniklar.
+   • Xizmatlar va Qulayliklar:
+     - 📏 BEPUL O'LCHASH (ZAMER) — mutaxassisimiz uyingizga borib bepul o'lchab beradi va aniq hisoblab beradi.
+     - 🛡 10 yilgacha rasmiy kafolat.
+     - 🚚 Yetkazib berish va o'rnatish odatda 3-5 kunda bajariladi. Agar mijozning o'z ustasi bo'lsa, faqat romning o'zini sifatli tayyorlab berish ham mumkin.
+     - 💳 To'lov: Naqd, karta (Click, Payme), kelishilgan holda.
 
-2. AGAR MIJOZ NARX SO'RASA (masalan: "narxlar qancha?", "necha pul?", "eshik qancha?", "deraza narxi?"):
-   - Eshiklar 1 000 000 so'mdan, derazalar 1 000 000 so'mdan boshlanishini aniq ayt.
-   - Aniq narx o'lchamga, profil turiga (plastik yoki alyuminiy) va rangiga bog'liqligini tushuntir.
-   - Mutaxassisimiz uyingizga borib BEPUL o'lchab (zamer qilib) berishi va aniq narx chiqarishini ayt.
-   - Nechta dona kerakligini yoki o'lchamlari bor-yo'qligini so'ra.
+4. MIJOZ RAQAM YOKI BUYURTMA QILGANDA:
+   - Aniq narx hisoblash yoki mutaxassisimiz bepul o'lchab berishi uchun mijozning ismi va telefon raqamini so'ra.
+   - Agar mijoz telefon raqamini qoldirsa, minnatdorchilik bildir va Zuxriddin hamda mutaxassis tez orada bog'lanishini ayt.
+   - Matn oxirida bot egasi ({EGA_ISMI}) uchun yangi qatordan maxsus hisobot tegi yoz:
+     [LEAD: Ism, Telefon, Buyurtma tafsilotlari]
+     (Agar telefon raqami olinmagan bo'lsa, [LEAD: ...] yozma!)
 
-3. AGAR MIJOZ ANIQ BIR MAHSULOT SO'RASA (masalan: "4 ta eshik kerak", "deraza kerak"):
-   - O'sha mahsulot bo'yicha darhol ma'lumot ber (boshlang'ich narxi 1 000 000 so'm, turlari, ranglari).
-   - O'lchamlari bormi yoki mutaxassisimiz bepul o'lchab berishi uchun manzil/telefon qoldirishini so'ra.
-
-4. AGAR KAFOLAT YOKI SIFAT SO'RASA:
-   - 10 yil rasmiy kafolat, sovuq va shovqindan 100% himoya, sifatli nemis/turk furnituralarini ta'kidla.
-
-5. AGAR MIJOZ TELEFON RAQAM YOKI ISMINI YOZSA:
-   - Minnatdorchilik bildir, {EGA_ISMI} va mutaxassis tez orada bog'lanishini ayt. "tayyor": true qil.
-
-JAVOB FORMATI:
-Faqat va faqat quyidagi JSON formatida javob ber, tashqarisiga hech qanday ortiqcha matn qo'shma:
-{{
-  "javob": "Mijozga yuboriladigan chiroyli, tartibli va to'liq matn",
-  "tayyor": false,
-  "xulosa": ""
-}}
-Mijozning telefon raqami yoki aniq buyurtmasi ma'lum bo'lganda "tayyor": true qil va "xulosa" ga {EGA_ISMI} uchun batafsil hisobot yoz."""
+Javobingni to'g'ridan-to'g'ri o'zbek tilida, tabiiy, lo'nda va chiroyli matn ko'rinishida yoz."""
 
 
 logging.basicConfig(
@@ -176,63 +153,40 @@ def init_runtime():
     return bot, dp, groq_client
 
 
+PHONE_REGEX = re.compile(r'(\+?998[\s-]?\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}|(?:\b[389]\d[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b))')
+
+
 def toza_javob_ajratish(matn: str) -> tuple[str, bool, str]:
     """
-    AI modelidan qaytgan matndan javob, tayyor va xulosani xavfsiz ajratib oladi.
-    Mijozga xom JSON kodlari yoki chala so'zlar ko'rinib qolmasligini kafolatlaydi.
+    AI modelidan qaytgan javobni tozalaydi va [LEAD: ...] hisobotini ajratadi.
+    Pure text va JSON formatlarini xavfsiz qo'llab-quvvatlaydi.
     """
     matn = matn.strip()
     
     if "```" in matn:
         matn = re.sub(r"```(?:json)?", "", matn).strip()
 
-    # 1) To'g'ridan-to'g'ri to'liq JSON sifatida o'qish
-    try:
-        data = json.loads(matn)
-        if isinstance(data, dict):
-            javob = str(data.get("javob", "")).strip()
-            tayyor = bool(data.get("tayyor", False))
-            xulosa = str(data.get("xulosa", "")).strip()
-            if len(javob) >= 15:
-                return javob, tayyor, xulosa
-    except Exception:
-        pass
-
-    # 2) Matn ichidagi birinchi { va oxirgi } orqali JSON topish
-    boshi = matn.find("{")
-    oxiri = matn.rfind("}")
-    if boshi != -1 and oxiri != -1 and oxiri > boshi:
+    # 1) Agar JSON formatida qaytgan bo'lsa
+    if matn.startswith("{") and matn.endswith("}"):
         try:
-            data = json.loads(matn[boshi : oxiri + 1])
+            data = json.loads(matn)
             if isinstance(data, dict):
                 javob = str(data.get("javob", "")).strip()
                 tayyor = bool(data.get("tayyor", False))
                 xulosa = str(data.get("xulosa", "")).strip()
-                if len(javob) >= 15:
+                if javob:
                     return javob, tayyor, xulosa
         except Exception:
             pass
 
-    # 3) Regex orqali "javob" va "xulosa" ni ajratish (re.DOTALL bilan)
-    match_javob = re.search(r'"javob"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', matn, re.DOTALL)
-    if match_javob:
-        try:
-            javob = match_javob.group(1).encode("utf-8").decode("unicode_escape", errors="ignore")
-        except Exception:
-            javob = match_javob.group(1)
-        tayyor = '"tayyor": true' in matn.lower() or '"tayyor":true' in matn.lower()
-        match_xulosa = re.search(r'"xulosa"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', matn, re.DOTALL)
-        xulosa = match_xulosa.group(1) if match_xulosa else ""
-        if len(javob.strip()) >= 15:
-            return javob.strip(), tayyor, xulosa.strip()
+    # 2) [LEAD: ...] maxsus hisobot tegi mavjudligini tekshirish
+    lead_match = re.search(r'\[LEAD:\s*(.*?)\]', matn, re.DOTALL | re.IGNORECASE)
+    if lead_match:
+        xulosa = lead_match.group(1).strip()
+        javob = re.sub(r'\[LEAD:\s*.*?\]', '', matn, flags=re.DOTALL | re.IGNORECASE).strip()
+        return javob, True, xulosa
 
-    # 4) Tozalangan matnni tekshirish
-    tozalangan = re.sub(r'["{}\[\]]', '', matn).strip()
-    if len(tozalangan) >= 20:
-        return tozalangan, False, ""
-
-    # Chala yoki qisqa matn yuzaga kelmasligi uchun to'liq standart javob
-    return SALOM_MATNI, False, ""
+    return matn, False, ""
 
 
 async def ega_id_ol(connection_id: str) -> int:
@@ -275,8 +229,16 @@ async def ovozni_matnga_aylantirish(file_id: str, fayl_nomi: str = "voice.ogg") 
 
 
 async def ai_javob(tarix: list) -> tuple[str, bool, str]:
-    """Groq API orqali javob oladi (native json_object va model fallback bilan)."""
-    messages = [{"role": "system", "content": TIZIM_KORSATMASI}] + tarix
+    """Groq API orqali tezkor va sifatli javob oladi (model fallback bilan)."""
+    # Agar bu birinchi xabar bo'lmasa, AI qayta salomlashmasligi uchun maxsus dinamik eslatma
+    qoshimcha = []
+    if len(tarix) > 1:
+        qoshimcha = [{
+            "role": "system",
+            "content": "ESLATMA: Suhbat allaqachon ketmoqda. Qayta 'Salom' yoki 'Assalomu alaykum' deb salomlashma! To'g'ridan-to'g'ri berilgan savolga mos, lo'nda va professional javob ber."
+        }]
+
+    messages = [{"role": "system", "content": TIZIM_KORSATMASI}] + tarix + qoshimcha
     modellar = [MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
     oxirgi_xato = None
 
@@ -285,12 +247,12 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
             resp = await groq_client.chat.completions.create(
                 model=m,
                 temperature=0.3,
-                max_tokens=1200,
-                response_format={"type": "json_object"},
+                max_tokens=400,
                 messages=messages,
             )
             matn = resp.choices[0].message.content.strip()
-            return toza_javob_ajratish(matn)
+            if matn:
+                return toza_javob_ajratish(matn)
         except Exception as e:
             oxirgi_xato = e
             logging.warning("Model '%s' da xato yuz berdi: %s. Zaxira model tekshirilmoqda...", m, e)
@@ -491,6 +453,12 @@ async def xabar_keldi(message: types.Message):
         # Suhbat tarixini bazadan olish
         tarix = db.get_chat_history(chat_id, limit=MAX_TARIX)
 
+        # Mijozga 'yozmoqda...' (typing) statusini darhol ko'rsatish
+        try:
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing", business_connection_id=message.business_connection_id)
+        except Exception:
+            pass
+
         # Har qanday xabar (birinchi murojaat bo'lsa ham) bazaga va AI ga yuboriladi.
         # Bu orqali mijoz birinchi xabardayoq savol bersa ham, bot darhol savoliga mos javob beradi.
         db.add_message(chat_id, "user", xabar_matni)
@@ -503,6 +471,12 @@ async def xabar_keldi(message: types.Message):
             db.delete_last_message(chat_id)
             await yubor(message, SALOM_MATNI)
             return
+
+        # Agar mijoz xabarida telefon raqami bo'lsa, zaxira sifatida lead deb belgilaymiz
+        if not tayyor and PHONE_REGEX.search(xabar_matni):
+            tayyor = True
+            if not xulosa:
+                xulosa = f"Mijoz telefon raqami qoldirdi: {xabar_matni}"
 
         db.add_message(chat_id, "assistant", javob)
         await yubor(message, javob)
