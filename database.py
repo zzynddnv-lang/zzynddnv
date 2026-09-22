@@ -63,13 +63,15 @@ def init_db():
 
 
 def get_chat_history(chat_id: int, limit: int = 12) -> List[Dict[str, str]]:
-    """Chatning oxirgi xabarlar tarixini oladi."""
+    """Chatning oxirgi xabarlar tarixini oladi (buzilgan yoki chala xabarlarni chetlab o'tadi)."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT role, content FROM (
                 SELECT id, role, content FROM messages 
                 WHERE chat_id = ? 
+                  AND length(content) > 3 
+                  AND content NOT IN ('AK', 'Salom! Xush')
                 ORDER BY id DESC 
                 LIMIT ?
             ) ORDER BY id ASC
