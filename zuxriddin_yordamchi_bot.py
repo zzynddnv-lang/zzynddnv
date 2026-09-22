@@ -1,6 +1,7 @@
 """
-ZUXRIDDIN YORDAMCHISI - Telegram Business bot (Groq Llama / Qwen & Whisper)
-Doimiy xotira (SQLite) va Ovozli xabarlarni tushunish (Voice-to-Text) tizimi bilan.
+ZUXRIDDIN YORDAMCHISI - AKFA Mahsulotlari bo'yicha Professional Savdo Boti
+Telegram Business (Groq Qwen 27B & Whisper)
+Doimiy xotira (SQLite) va Ovozli xabarlarni tushunish tizimi bilan.
 
 O'rnatish:
     pip install -r requirements.txt
@@ -55,45 +56,53 @@ WHISPER_MODEL = "whisper-large-v3-turbo"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LEADLAR_FAYLI = os.path.join(BASE_DIR, "leadlar.csv")
 
-# Suhbat tarixi hajmi (tokenlarni tejash uchun)
-MAX_TARIX = 12
+# Suhbat tarixi hajmi
+MAX_TARIX = 14
 
 # =====================================================================
-#  SO'ZLAR VA TIZIM KO'RSATMALARI
+#  AKFA MAHSULOTLARI VA SAVDO KO'RSATMALARI
 # =====================================================================
 
 SALOM_MATNI = (
-    f"Salom, men {EGA_ISMI}ning yordamchisiman. "
-    f"Siz bilan men suhbat quraman va siz haqingizda {EGA_ISMI}ga javob beraman.\n\n"
-    "Qanday masalada murojaat qilyapsiz?"
+    f"Assalomu alaykum! Men {EGA_ISMI}ning yordamchisi va AKFA mahsulotlari bo'yicha maslahatchiman.\n\n"
+    "Bizda sifatli AKFA derazalari, eshiklar, fasad vitrajlari va chivin to'rlari (moskitka) mavjud.\n\n"
+    "Sizga qanday mahsulot kerak edi? (Narxlar, sifat yoki o'lchamlari bo'yicha batafsil ma'lumot berishim mumkin)"
 )
 
-TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy yordamchisisan. Telegram'da unga yozgan odamlar bilan gaplashasan.
+TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy savdo yordamchisi va AKFA mahsulotlari bo'yicha professional maslahatchisan. Telegram'da yozgan mijozlar bilan muloqot qilasan.
 
-Vazifang: suhbat orqali quyidagilarni aniqlab, {EGA_ISMI}ga yetkazish:
-1. Odamning ismi
-2. Qanday masalada murojaat qilyapti
-3. Maqsadi: aniq nima kerak (masalan: mahsulot, narx, hamkorlik, maslahat)
-4. Bog'lanish uchun telefon raqami (agar odam xohlasa)
+SENING ASOSIY VAZIFANG:
+1. Mijozlarga AKFA mahsulotlari (derazalar, eshiklar, vitrajlar, to'rlar) haqida to'liq, qiziqarli va aniq ma'lumot berish.
+2. Narx, sifat, profil turlari va xizmatlar bo'yicha barcha savollarga to'g'ridan-to'g'ri va ishonchli javob berish. "Zuxriddin o'zi aytadi" deb javobdan qochma! Savollarga O'ZING to'liq, professional javob ber.
+3. Mijozning ehtiyojini aniqlash (nechta dona kerak, qaysi rang, o'lchami bormi).
+4. Aniq narxni hisoblab berish yoki usta-mutaxassisimiz bepul o'lchab berishi (zamer) uchun mijozning ismi va telefon raqamini olish.
 
-Qoidalar:
-- O'zbek tilida, samimiy va lo'nda gapir (1-3 gap). Odam boshqa tilda yozsa, o'sha tilda javob ber.
-- Bir vaqtda faqat bitta savol ber.
-- Agar odam 'Qo'lingdan nima keladi?' yoki 'Nima ish qilasan?' deb so'rasa: 'Men {EGA_ISMI}ning yordamchisiman, sizning murojaatingiz va savollaringizni qabul qilib, {EGA_ISMI}ga aniq yetkazaman' deb tushuntir va qanday masalada yozayotganini so'ra.
-- Agar '{EGA_ISMI} kim?' deb so'rasa: '{EGA_ISMI} mening rahbarim. Siz u kishiga qanday masalada murojaat qilmoqchi edingiz?' deb chiroyli yo'naltir.
-- Narx, chegirma, muddat va boshqa narsalarni o'ylab topma va va'da qilma. Bilmasang: 'Buni {EGA_ISMI} o'zi aniq aytadi' de.
-- O'zingni {EGA_ISMI}ning yordamchisi deb tanishtir. Odam so'rasa, sen sun'iy intellekt ekaningni yashirma.
-- Yetarli ma'lumot yig'ilgach (kamida masala va maqsad ma'lum bo'lsa), suhbatni yakunla va {EGA_ISMI} tez orada bog'lanishini ayt.
-- Agar odam bilan avval suhbat yakunlangan bo'lsa va u yana yozsa (masalan: "rahmat", "kutaman", "qachon bog'lanadi?", yangi savol yoki qo'shimcha ma'lumot):
-  - Har doim samimiy va xushmuomala javob qaytar (masalan: "Arziydi! {EGA_ISMI} tez orada siz bilan bog'lanadi", "Qo'shimcha savolingizni {EGA_ISMI}ga yetkazib qo'yaman").
-  - Agar yangi yoki yangilangan ma'lumot bersa, uni xulosaga qo'shib yoz va "tayyor": true qil.
-  - Hech qachon odamni javobsiz qoldirma.
+AKFA MAHSULOTLARI VA NARXLAR BAZASI:
+• Oynalar (romlar): 1 dona standart oyna narxi 1 000 000 so'mdan boshlanadi. O'lchamiga, shisha qavatiga (1 yoki 2 kamerali) va profiliga qarab hisoblanadi.
+• Eshiklar: 1 dona sifatli eshik narxi 1 000 000 so'mdan boshlanadi (xona eshiklari, kirish eshiklari, sanzuel uchun namlikka chidamli eshiklar va surilma slayding eshiklar).
+• Profil turlari:
+  - AKFA Plastik (PVX): Trio (3 kamerali, tejamkor), Quattro (4 kamerali, shovqin va sovuqdan yuqori himoya), Engelberg (premium daraja).
+  - AKFA Alyuminiy: Aldoks (engil, mustahkam) va Termo seriya (qishda sovuq o'tkazmaydigan maxsus termo-ko'prikli alyuminiy).
+• Ranglar: Oq (standart), Karamel, Oltin eman (zolotoy dub), Antratsit kulrang, Mokko va boshqa yog'och teksturali ranglar.
+• Oyna paketlar: Energiya tejamkor (Solar) shishalar (yozda oftob issig'ini qaytaradi, qishda issiqlikni saqlaydi), 2 yoki 3 qavatli shovqin to'suvchi germetik oynalar.
+• Qo'shimcha mahsulotlar: Chivin to'rlari (Moskitka to'rlar: oddiy yoki plisse/garmoshka), podokonniklar, sifatli turk va nemis furnituralari (qulflar, dastalari).
+• Qulayliklar va Kafolat: 10 yilgacha rasmiy kafolat, Toshkent va viloyatlar bo'yicha yetkazib berish, bepul o'lchash (zamer) xizmati mavjud.
 
+MULOQOT QOIDALARI:
+- O'zbek tilida, samimiy, xushmuomala va lo'nda gapir (2-4 gap). Mijoz ruscha yoki boshqa tilda yozsa, o'sha tilda javob ber.
+- Bir vaqtda faqat bitta savol ber, mijozni charchatma.
+- Narx so'rashsa: oyna va eshiklarimiz 1 000 000 so'mdan boshlanishini tushuntir, so'ng nechta dona kerakligi yoki taxminiy o'lchami bor-yo'qligini so'ra.
+- Sifat haqida so'rashsa: shovqin va sovuqdan 100% himoya qilishi, germetikligi va 10 yillik kafolati borligini ayt.
+- Agar mijoz qiziqsa: "Aniq hisob-kitob qilib berishimiz va mutaxassisimiz bepul o'lchab (zamer qilib) berishi uchun ismingiz va telefon raqamingizni yozib qoldira olasizmi?" deb so'ra.
+- Telefon raqami va ma'lumotlar olingach: minnatdorchilik bildir, {EGA_ISMI} va mutaxassislar tez orada bog'lanishini ayt.
+- Suhbat yakunlanganidan keyin ham mijoz yozsa, doim odob bilan javob ber (masalan: "Rahmat! Zuxriddin va mutaxassisimiz tezda siz bilan bog'lanadi", yangi savollarga javob ber).
+
+JAVOB FORMATI:
 Javobni FAQAT quyidagi JSON ko'rinishida qaytar, oldidan yoki ketidan hech qanday boshqa matn yozma:
 {{"javob": "odamga yuboriladigan matn", "tayyor": false, "xulosa": ""}}
 
-Suhbat yakunlanganda yoki muhim ma'lumot yig'ilganda "tayyor" ni true qil va "xulosa" ga {EGA_ISMI} uchun qisqa hisobot yoz
-(ism, masala, maqsad, aloqa)."""
+Mijozning telefon raqami yoki aniq talabi ma'lum bo'lganda "tayyor": true qil va "xulosa" ga {EGA_ISMI} uchun batafsil hisobot yoz
+(Ism, telefon, qaysi mahsulot kerak, nechta dona, taxminiy o'lcham yoki manzil)."""
 
 
 logging.basicConfig(
@@ -171,7 +180,7 @@ def toza_javob_ajratish(matn: str) -> tuple[str, bool, str]:
     if tozalangan:
         return tozalangan, False, ""
 
-    return f"Salom, men {EGA_ISMI}ning yordamchisiman. Sizga qanday yordam bera olaman?", False, ""
+    return f"Salom! Men {EGA_ISMI}ning yordamchisiman va AKFA mahsulotlari bo'yicha maslahatchiman. Sizga qanday yordam bera olaman?", False, ""
 
 
 async def ega_id_ol(connection_id: str) -> int:
@@ -272,10 +281,10 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
     """Suhbat yakunlanganda bot egasiga hisobot yuboradi."""
     username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
     matn = (
-        "🔔 <b>Yangi mijoz murojaati</b>\n\n"
+        "🔔 <b>Yangi mijoz murojaati (AKFA buyurtma)</b>\n\n"
         f"👤 <b>Mijoz:</b> {mijoz.full_name} ({username})\n"
         f"🆔 <b>ID:</b> <code>{mijoz.id}</code>\n\n"
-        f"📋 <b>Xulosa:</b>\n{xulosa}"
+        f"📋 <b>Buyurtma tafsilotlari va xulosa:</b>\n{xulosa}"
     )
     try:
         await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
@@ -287,10 +296,10 @@ async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, xulosa: str):
     """Mijoz qo'shimcha ma'lumot yozganda bot egasiga bildirishnoma."""
     username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
     matn = (
-        "🔔 <b>Mijozdan qo'shimcha ma'lumot / xabar:</b>\n\n"
+        "🔔 <b>Mijozdan yangilangan buyurtma ma'lumoti:</b>\n\n"
         f"👤 <b>Mijoz:</b> {mijoz.full_name} ({username})\n"
         f"🆔 <b>ID:</b> <code>{mijoz.id}</code>\n\n"
-        f"📝 <b>Yangilangan xulosa:</b>\n{xulosa}"
+        f"📝 <b>Yangi xulosa:</b>\n{xulosa}"
     )
     try:
         await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
@@ -307,10 +316,10 @@ async def start_komandasi(message: types.Message):
     """Bot egasi /start bosganida status xabari."""
     await message.answer(
         f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
-        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) Telegram Business shaxsiy yordamchingizman.\n"
-        "Men matnli va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
+        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) AKFA mahsulotlari bo'yicha Telegram Business savdo yordamchingizman.\n"
+        "Mijozlarga deraza, eshik, narxlar va sifat bo'yicha to'liq maslahat beraman, matnli va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
         "Buyruqlar:\n"
-        "• /leads — Oxirgi kelgan mijozlar ro'yxati\n"
+        "• /leads — Oxirgi kelgan buyurtmalar (leadlar) ro'yxati\n"
         "• /stats — Umumiy statistika (Baza bo'yicha)\n"
         "• /reset &lt;chat_id&gt; — Chatni qayta faollashtirish\n"
         "• /help — Yordam va qo'llanma",
@@ -342,7 +351,7 @@ async def stats_komandasi(message: types.Message):
     """Statistika buyrug'i (SQLite bazasidan)."""
     stats = db.get_stats()
     matn = (
-        "📊 <b>Bot Statistikasi (SQLite Baza)</b>\n\n"
+        "📊 <b>Bot Statistikasi (AKFA Baza)</b>\n\n"
         f"👥 Jami qabul qilingan leadlar: <b>{stats['total_leads']} ta</b>\n"
         f"💬 Faol suhbatlar: <b>{stats['active_chats']} ta</b>\n"
         f"✅ Yakunlangan suhbatlar: <b>{stats['completed_chats']} ta</b>\n\n"
@@ -368,12 +377,12 @@ async def reset_komandasi(message: types.Message):
 async def help_komandasi(message: types.Message):
     """Yordam bo'limi."""
     await message.answer(
-        "💡 <b>Botdan foydalanish bo'yicha qo'llanma:</b>\n\n"
-        "1. Telegram Business sozlamalarida ushbu bot Chatbot sifatida ulangan bo'lishi kerak.\n"
-        "2. Yangi mijoz matn yoki <b>ovozli xabar (voice)</b> yuborganida AI avtomatik tushunadi va javob beradi.\n"
-        "3. Suhbat yakunlanishi bilan sizga hisobot keladi va SQLite hamda CSV faylga saqlanadi.\n"
-        "4. Suhbat yakunlanganidan keyin ham mijoz yangi savol bersa, bot unga muloyim javob qaytaradi va yangi ma'lumotlarni sizga yetkazadi.\n"
-        "5. Agar siz mijozga o'zingiz yozsangiz, bot sizning xabaringizga xalaqit bermaydi.",
+        "💡 <b>AKFA Savdo Boti Qo'llanmasi:</b>\n\n"
+        "1. Bot Telegram Business orqali shaxsiy akkauntingizga ulangan bo'lishi kerak.\n"
+        "2. Yangi mijoz yozganda AI AKFA derazalari, eshiklari, narxlari va sifati bo'yicha mustaqil maslahat beradi.\n"
+        "3. Mijozning telefon raqami va buyurtma tafsilotlari aniqlangach, sizga bildirishnoma yuboradi.\n"
+        "4. Suhbat yakunlanganidan keyin ham mijoz yozsa, doim muloyim javob berishda davom etadi.\n"
+        "5. Agar siz mijozga o'zingiz yozsangiz, bot sizning suhbatingizga xalaqit bermaydi.",
         parse_mode="HTML"
     )
 
@@ -472,7 +481,7 @@ async def xabar_keldi(message: types.Message):
 async def main():
     global bot, dp, groq_client
     bot, dp, groq_client = init_runtime()
-    logging.info("Bot muvaffaqiyatli ishga tushdi! To'xtatish uchun: Ctrl + C")
+    logging.info("AKFA Savdo Boti muvaffaqiyatli ishga tushdi! To'xtatish uchun: Ctrl + C")
     
     await dp.start_polling(
         bot,
