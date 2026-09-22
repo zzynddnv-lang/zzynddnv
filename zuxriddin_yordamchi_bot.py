@@ -261,9 +261,34 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
     raise oxirgi_xato or RuntimeError("Barcha modellar xato berdi")
 
 
+async def google_sheetsga_yozish(sana: str, ism: str, telefon: str, username: str, xulosa: str):
+    """Yangi leadni Google Sheets onlayn jadvaliga webhook orqali avtomatik yozadi."""
+    webhook_url = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return
+    try:
+        import aiohttp
+        payload = {
+            "sana": sana,
+            "ism": ism,
+            "telefon": telefon,
+            "username": username,
+            "xulosa": xulosa,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(webhook_url, json=payload, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status in (200, 201, 302) or resp.status < 400:
+                    logging.info("Google Sheets jadvaliga muvaffaqiyatli saqlandi: %s (%s)", ism, telefon)
+                else:
+                    logging.warning("Google Sheetsga yuborishda server statusi: %s", resp.status)
+    except Exception as e:
+        logging.error("Google Sheetsga yozishda xatolik: %s", e)
+
+
 async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
-    """Leadni ham SQLite bazaga, ham CSV zaxira fayliga saqlaydi."""
+    """Leadni ham SQLite bazaga, ham CSV zaxira fayliga, ham Google Sheetsga saqlaydi."""
     username = f"@{mijoz.username}" if mijoz.username else ""
+    sana = datetime.now().strftime("%Y-%m-%d %H:%M")
     
     # 1) SQLite bazaga saqlash
     db.save_lead(
@@ -283,7 +308,7 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
                 if yangi_fayl:
                     yozuvchi.writerow(["Sana", "Ism", "Username", "Telegram ID", "Xulosa"])
                 yozuvchi.writerow([
-                    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    sana,
                     mijoz.full_name,
                     username,
                     mijoz.id,
@@ -291,6 +316,17 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
                 ])
         except Exception as e:
             logging.error("Leadni CSV ga saqlashda xatolik: %s", e)
+
+    # 3) Google Sheets onlayn jadvaliga avtomatik yuborish
+    tel_match = PHONE_REGEX.search(xulosa)
+    telefon = tel_match.group(0) if tel_match else ""
+    asyncio.create_task(google_sheetsga_yozish(
+        sana=sana,
+        ism=mijoz.full_name,
+        telefon=telefon,
+        username=username,
+        xulosa=xulosa,
+    ))
 
 
 async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
