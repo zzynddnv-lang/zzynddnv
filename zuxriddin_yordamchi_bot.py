@@ -261,42 +261,136 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
     raise oxirgi_xato or RuntimeError("Barcha modellar xato berdi")
 
 
-async def google_sheetsga_yozish(sana: str, ism: str, telefon: str, username: str, xulosa: str):
-    """Yangi leadni Google Sheets onlayn jadvaliga webhook orqali avtomatik yozadi."""
+async def lid_kartochkasini_shakllantirish(tarix: list, mijoz: types.User, raw_xulosa: str) -> dict:
+    """Mijoz suhbati va xulosasidan to'liq professional CRM Lid Kartochkasini shakllantiradi."""
+    sana = datetime.now().strftime("%Y-%m-%d %H:%M")
+    username = f"@{mijoz.username}" if mijoz.username else ""
+    
+    # Telefon raqamini xulosa yoki suhbatdan aniqlash
+    tel_topildi = ""
+    for qidiruv_matni in [raw_xulosa] + [m.get("content", "") for m in reversed(tarix) if m.get("role") == "user"]:
+        m = PHONE_REGEX.search(qidiruv_matni)
+        if m:
+            tel_topildi = m.group(0)
+            break
+
+    karta = {
+        "sana": sana,
+        "ism": mijoz.full_name or "Noma'lum mijoz",
+        "telefon": tel_topildi or "Ko'rsatilmagan",
+        "username": username,
+        "telegram_id": mijoz.id,
+        "mahsulot": "AKFA rom va eshiklar",
+        "profil": "Standart",
+        "shisha": "Standart",
+        "miqdor": "Aniqlanmoqda",
+        "manzil": "Ko'rsatilmagan",
+        "zamer": "Kerak (bepul)",
+        "izoh": raw_xulosa,
+        "holat": "🟡 Yangi lid",
+    }
+
+    # AI orqali har bir maydonni aniq ajratib olish (JSON)
+    prompt = (
+        "Quyidagi mijoz suhbati asosida AKFA savdo tizimi uchun aniq JSON formatida LID KARTOCHKASI tuz.\n"
+        "Faqat quyidagi kalitlar bilan toza JSON qaytar, boshqa hech narsa yozma:\n"
+        "{\n"
+        '  "ism": "Mijoz ismi (suhbatda aytilgan bo\'lsa)",\n'
+        '  "telefon": "Telefon raqami",\n'
+        '  "mahsulot": "Deraza (rom) / Eshik / Vitraj / Moskitka / Boshqa",\n'
+        '  "profil": "Trio / Quattro / Termo / Aldoks / Plastik / Alyuminiy",\n'
+        '  "shisha": "Solar / 2 qavatli / Oddiy",\n'
+        '  "miqdor": "O\'lcham yoki miqdor (masalan: 3 ta rom, 1 ta eshik)",\n'
+        '  "manzil": "Shahar yoki tuman (agar aytilgan bo\'lsa)",\n'
+        '  "zamer": "Kerak (bepul) / Kerak emas",\n'
+        '  "izoh": "Mijozning asosiy talabi va xulosasi (1-2 gap)"\n'
+        "}\n\n"
+        f"Telegram ismi: {mijoz.full_name}\n"
+        f"Oxirgi xulosa: {raw_xulosa}\n"
+        f"Suhbat:\n" + "\n".join([f"{m.get('role')}: {m.get('content')}" for m in tarix[-6:]])
+    )
+
+    try:
+        resp = await groq_client.chat.completions.create(
+            model=MODEL,
+            temperature=0.1,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        javob_matn = resp.choices[0].message.content.strip()
+        if "```" in javob_matn:
+            javob_matn = re.sub(r"```(?:json)?", "", javob_matn).strip()
+        
+        json_match = re.search(r'\{.*\}', javob_matn, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(0))
+            if isinstance(data, dict):
+                if data.get("ism") and len(str(data["ism"])) > 1:
+                    karta["ism"] = str(data["ism"]).strip()
+                if data.get("telefon") and PHONE_REGEX.search(str(data["telefon"])):
+                    karta["telefon"] = str(data["telefon"]).strip()
+                if data.get("mahsulot"):
+                    karta["mahsulot"] = str(data["mahsulot"]).strip()
+                if data.get("profil"):
+                    karta["profil"] = str(data["profil"]).strip()
+                if data.get("shisha"):
+                    karta["shisha"] = str(data["shisha"]).strip()
+                if data.get("miqdor"):
+                    karta["miqdor"] = str(data["miqdor"]).strip()
+                if data.get("manzil"):
+                    karta["manzil"] = str(data["manzil"]).strip()
+                if data.get("zamer"):
+                    karta["zamer"] = str(data["zamer"]).strip()
+                if data.get("izoh"):
+                    karta["izoh"] = str(data["izoh"]).strip()
+    except Exception as e:
+        logging.warning("Lid kartochkasini AI orqali tuzishda xatolik: %s", e)
+
+    return karta
+
+
+async def google_sheetsga_yozish(karta: dict):
+    """Yangi lead (Lid kartochkasi)ni Google Sheets onlayn jadvaliga webhook orqali avtomatik yozadi."""
     webhook_url = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return
     try:
         import aiohttp
-        payload = {
-            "sana": sana,
-            "ism": ism,
-            "telefon": telefon,
-            "username": username,
-            "xulosa": xulosa,
-        }
         async with aiohttp.ClientSession() as session:
-            async with session.post(webhook_url, json=payload, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.post(
+                webhook_url,
+                json=karta,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
                 if resp.status in (200, 201, 302) or resp.status < 400:
-                    logging.info("Google Sheets jadvaliga muvaffaqiyatli saqlandi: %s (%s)", ism, telefon)
+                    logging.info("Google Sheets Lid Kartochkasiga muvaffaqiyatli saqlandi: %s (%s)", karta.get("ism"), karta.get("telefon"))
                 else:
                     logging.warning("Google Sheetsga yuborishda server statusi: %s", resp.status)
     except Exception as e:
         logging.error("Google Sheetsga yozishda xatolik: %s", e)
 
 
-async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
-    """Leadni ham SQLite bazaga, ham CSV zaxira fayliga, ham Google Sheetsga saqlaydi."""
-    username = f"@{mijoz.username}" if mijoz.username else ""
-    sana = datetime.now().strftime("%Y-%m-%d %H:%M")
+async def leadni_saqla(chat_id: int, mijoz: types.User, karta: dict):
+    """Lead kartochkasini SQLite bazaga, CSV zaxira fayliga va Google Sheetsga saqlaydi."""
+    username = karta.get("username", "")
+    sana = karta.get("sana", datetime.now().strftime("%Y-%m-%d %H:%M"))
+    profil_shisha = f"{karta.get('profil', '')} / {karta.get('shisha', '')}".strip(" /")
     
     # 1) SQLite bazaga saqlash
     db.save_lead(
         chat_id=chat_id,
-        full_name=mijoz.full_name,
+        full_name=karta.get("ism", mijoz.full_name),
         username=username,
         telegram_id=mijoz.id,
-        xulosa=xulosa,
+        xulosa=karta.get("izoh", ""),
+        telefon=karta.get("telefon", ""),
+        mahsulot=karta.get("mahsulot", ""),
+        profil=profil_shisha,
+        miqdor=karta.get("miqdor", ""),
+        manzil=karta.get("manzil", ""),
+        zamer=karta.get("zamer", ""),
+        holat=karta.get("holat", "🟡 Yangi lid"),
     )
 
     # 2) CSV zaxira fayliga yozish
@@ -306,46 +400,57 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
             with open(LEADLAR_FAYLI, "a", newline="", encoding="utf-8-sig") as f:
                 yozuvchi = csv.writer(f)
                 if yangi_fayl:
-                    yozuvchi.writerow(["Sana", "Ism", "Username", "Telegram ID", "Xulosa"])
+                    yozuvchi.writerow([
+                        "Sana", "Mijoz Ismi", "Telefon", "Telegram", "Telegram ID",
+                        "Mahsulot", "Profil va Oyna", "Miqdori / O'lchami", "Manzil", "Zamer", "Xulosa / Izoh", "Holati"
+                    ])
                 yozuvchi.writerow([
                     sana,
-                    mijoz.full_name,
+                    karta.get("ism", mijoz.full_name),
+                    karta.get("telefon", ""),
                     username,
                     mijoz.id,
-                    xulosa,
+                    karta.get("mahsulot", ""),
+                    profil_shisha,
+                    karta.get("miqdor", ""),
+                    karta.get("manzil", ""),
+                    karta.get("zamer", ""),
+                    karta.get("izoh", ""),
+                    karta.get("holat", "🟡 Yangi lid"),
                 ])
         except Exception as e:
             logging.error("Leadni CSV ga saqlashda xatolik: %s", e)
 
     # 3) Google Sheets onlayn jadvaliga avtomatik yuborish
-    tel_match = PHONE_REGEX.search(xulosa)
-    telefon = tel_match.group(0) if tel_match else ""
-    asyncio.create_task(google_sheetsga_yozish(
-        sana=sana,
-        ism=mijoz.full_name,
-        telefon=telefon,
-        username=username,
-        xulosa=xulosa,
-    ))
+    asyncio.create_task(google_sheetsga_yozish(karta))
 
 
-async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
-    """Suhbat yakunlanganda bot egasiga hisobot yuboradi (tezkor qo'ng'iroq va profil havolasi bilan)."""
+async def egaga_xabar(ega_id: int, mijoz: types.User, karta: dict):
+    """Suhbat yakunlanganda bot egasiga chiroyli Lid Kartochkasi ko'rinishida hisobot yuboradi."""
     username_matn = f"@{mijoz.username}" if mijoz.username else "username yo'q"
-    mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{mijoz.full_name}</a>"
+    mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{karta.get('ism', mijoz.full_name)}</a>"
     
-    # Telefon raqam aniqlansa, to'g'ridan-to'g'ri qo'ng'iroq qilish tugma-havolasi
-    tel_match = PHONE_REGEX.search(xulosa)
+    tel = karta.get("telefon", "")
     tel_link = ""
-    if tel_match:
-        tel_toza = re.sub(r'[^\d+]', '', tel_match.group(0))
-        tel_link = f"\n📞 <b>Tezkor qo'ng'iroq:</b> <a href='tel:{tel_toza}'>{tel_match.group(0)}</a>"
+    if tel and tel != "Ko'rsatilmagan":
+        tel_toza = re.sub(r'[^\d+]', '', tel)
+        tel_link = f"\n📞 <b>Telefon:</b> <a href='tel:{tel_toza}'>{tel}</a>"
+    else:
+        tel_link = f"\n📞 <b>Telefon:</b> Ko'rsatilmagan"
+
+    profil_shisha = f"{karta.get('profil', '')} / {karta.get('shisha', '')}".strip(" /")
 
     matn = (
-        "🔔 <b>Yangi mijoz murojaati (AKFA buyurtma)</b>\n\n"
+        "📇 <b>YANGI LID KARTOCHKASI (AKFA CRM)</b>\n\n"
         f"👤 <b>Mijoz:</b> {mijoz_link} ({username_matn})\n"
-        f"🆔 <b>Telegram ID:</b> <code>{mijoz.id}</code>{tel_link}\n\n"
-        f"📋 <b>Buyurtma tafsilotlari va xulosa:</b>\n{xulosa}\n\n"
+        f"🆔 <b>Telegram ID:</b> <code>{mijoz.id}</code>{tel_link}\n"
+        f"🪟 <b>Mahsulot:</b> {karta.get('mahsulot', 'AKFA')}\n"
+        f"🧱 <b>Profil & Oyna:</b> {profil_shisha or 'Standart'}\n"
+        f"📐 <b>Miqdori / O'lchami:</b> {karta.get('miqdor', 'Aniqlanmoqda')}\n"
+        f"📍 <b>Manzil / Hudud:</b> {karta.get('manzil', 'Ko\'rsatilmagan')}\n"
+        f"📏 <b>Bepul Zamer:</b> {karta.get('zamer', 'Kerak')}\n\n"
+        f"📝 <b>Batafsil izoh:</b>\n{karta.get('izoh', '')}\n\n"
+        f"📊 <b>Holati:</b> {karta.get('holat', '🟡 Yangi lid')} <i>(Google Sheetsga yozildi)</i>\n"
         "💡 <i>Mijoz profiliga o'tish uchun ismini bosing.</i>"
     )
     try:
@@ -354,15 +459,20 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
         logging.warning("Sizga xabar yuborib bo'lmadi. Bot chatiga kirib /start bosing. (%s)", xato)
 
 
-async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, xulosa: str):
-    """Mijoz qo'shimcha ma'lumot yozganda bot egasiga bildirishnoma."""
+async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, karta: dict):
+    """Mijoz qo'shimcha ma'lumot yozganda bot egasiga yangilangan Lid Kartochkasi bildirishnomasi."""
     username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
-    mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{mijoz.full_name}</a>"
+    mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{karta.get('ism', mijoz.full_name)}</a>"
+    profil_shisha = f"{karta.get('profil', '')} / {karta.get('shisha', '')}".strip(" /")
     matn = (
-        "🔔 <b>Mijozdan yangilangan buyurtma ma'lumoti:</b>\n\n"
+        "🔄 <b>YANGILANGAN LID KARTOCHKASI:</b>\n\n"
         f"👤 <b>Mijoz:</b> {mijoz_link} ({username})\n"
-        f"🆔 <b>ID:</b> <code>{mijoz.id}</code>\n\n"
-        f"📝 <b>Yangi xulosa:</b>\n{xulosa}"
+        f"📞 <b>Telefon:</b> {karta.get('telefon', 'Ko\'rsatilmagan')}\n"
+        f"🪟 <b>Mahsulot:</b> {karta.get('mahsulot', 'AKFA')}\n"
+        f"🧱 <b>Profil & Oyna:</b> {profil_shisha}\n"
+        f"📐 <b>Miqdor:</b> {karta.get('miqdor', '')}\n"
+        f"📍 <b>Manzil:</b> {karta.get('manzil', '')}\n\n"
+        f"📝 <b>Yangi xulosa:</b>\n{karta.get('izoh', '')}"
     )
     try:
         await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
@@ -382,7 +492,7 @@ async def start_komandasi(message: types.Message):
         f"🤖 Men sizning (<b>{EGA_ISMI}</b>) AKFA mahsulotlari bo'yicha Telegram Business savdo yordamchingizman.\n"
         "Mijozlarga deraza, eshik, narxlar va sifat bo'yicha mustaqil maslahat beraman, matnli, rasm va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
         "Buyruqlar:\n"
-        "• /leads — Oxirgi kelgan buyurtmalar (leadlar) ro'yxati\n"
+        "• /leads — Oxirgi kelgan buyurtmalar (Lid kartochkalari) ro'yxati\n"
         "• /export — Barcha buyurtmalarni Excel (CSV) faylda yuklab olish\n"
         "• /stats — Umumiy statistika (Baza bo'yicha)\n"
         "• /resume &lt;chat_id&gt; — Chatda botni qayta faollashtirish\n"
@@ -394,19 +504,25 @@ async def start_komandasi(message: types.Message):
 
 @dp.message(Command("leads"))
 async def leads_komandasi(message: types.Message):
-    """Oxirgi kelgan mijozlarni SQLite bazasidan ko'rsatish."""
+    """Oxirgi kelgan mijozlarni SQLite bazasidan Lid Kartochkasi ko'rinishida ko'rsatish."""
     oxirgi_leadlar = db.get_recent_leads(limit=5)
     if not oxirgi_leadlar:
         await message.answer("Hozircha yangi murojaatlar (leadlar) mavjud emas.")
         return
 
-    javob = "📋 <b>Oxirgi 5 ta murojaat:</b>\n\n"
+    javob = "📇 <b>Oxirgi 5 ta Lid Kartochkasi:</b>\n\n"
     for idx, row in enumerate(oxirgi_leadlar, 1):
+        keys = row.keys() if hasattr(row, 'keys') else []
         username_matn = f"@{row['username']}" if row['username'] and not str(row['username']).startswith('@') else (row['username'] or 'yo\'q')
         mijoz_link = f"<a href='tg://user?id={row['telegram_id']}'>{row['full_name']}</a>"
+        tel = row['telefon'] if 'telefon' in keys and row['telefon'] else 'Aniqlanmagan'
+        mahsulot = row['mahsulot'] if 'mahsulot' in keys and row['mahsulot'] else 'AKFA'
+        miqdor = row['miqdor'] if 'miqdor' in keys and row['miqdor'] else ''
+        miqdor_matn = f" | {miqdor}" if miqdor else ""
+        
         javob += (
-            f"{idx}. <b>{mijoz_link}</b> ({username_matn}) "
-            f"— <i>{row['created_at']}</i>\n"
+            f"<b>{idx}. {mijoz_link}</b> ({username_matn}) — <i>{row['created_at']}</i>\n"
+            f"📞 <code>{tel}</code> | 🪟 {mahsulot}{miqdor_matn}\n"
             f"📝 {row['xulosa']}\n\n"
         )
 
@@ -416,7 +532,7 @@ async def leads_komandasi(message: types.Message):
 @dp.message(Command("export"))
 @dp.message(Command("excel"))
 async def export_komandasi(message: types.Message):
-    """Leadlar ro'yxatini Excel/CSV fayl ko'rinishida yuboradi."""
+    """Leadlar ro'yxatini to'liq Lid Kartochkasi ustunlari bilan Excel/CSV fayl ko'rinishida yuboradi."""
     all_leads = db.get_all_leads()
     if not all_leads:
         await message.answer("Hozircha saqlangan buyurtmalar (leadlar) mavjud emas.")
@@ -427,17 +543,35 @@ async def export_komandasi(message: types.Message):
         try:
             with open(LEADLAR_FAYLI, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
-                writer.writerow(["Sana", "Ism", "Username", "Telegram ID", "Xulosa"])
+                writer.writerow([
+                    "ID", "Sana", "Mijoz Ismi", "Telefon", "Telegram", "Telegram ID",
+                    "Mahsulot", "Profil va Oyna", "Miqdori / O'lchami", "Manzil", "Zamer", "Xulosa / Izoh", "Holati"
+                ])
                 for r in all_leads:
-                    writer.writerow([r["created_at"], r["full_name"], r["username"], r["telegram_id"], r["xulosa"]])
+                    keys = r.keys() if hasattr(r, 'keys') else []
+                    writer.writerow([
+                        r["id"] if "id" in keys else "",
+                        r["created_at"] if "created_at" in keys else "",
+                        r["full_name"] if "full_name" in keys else "",
+                        r["telefon"] if "telefon" in keys else "",
+                        r["username"] if "username" in keys else "",
+                        r["telegram_id"] if "telegram_id" in keys else "",
+                        r["mahsulot"] if "mahsulot" in keys else "",
+                        r["profil"] if "profil" in keys else "",
+                        r["miqdor"] if "miqdor" in keys else "",
+                        r["manzil"] if "manzil" in keys else "",
+                        r["zamer"] if "zamer" in keys else "",
+                        r["xulosa"] if "xulosa" in keys else "",
+                        r["holat"] if "holat" in keys else "Yangi lid",
+                    ])
         except Exception as e:
             logging.error("CSV yozishda xato: %s", e)
 
     try:
-        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"AKFA_Buyurtmalar_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"AKFA_Lid_Kartochkalari_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
         await message.answer_document(
             document=fayl,
-            caption="📊 <b>Barcha AKFA buyurtmalari (leadlar) ro'yxati</b>\nUshbu faylni telefon yoki kompyuterda Excel dasturida ochishingiz mumkin.",
+            caption="📊 <b>Barcha AKFA Lid Kartochkalari ro'yxati</b>\nUshbu faylni Excel dasturida to'liq jadval ko'rinishida ko'rishingiz mumkin.",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -608,18 +742,19 @@ async def xabar_keldi(message: types.Message):
         db.add_message(chat_id, "assistant", javob)
         await yubor(message, javob)
 
-        # Agar ma'lumotlar yig'ilgan yoki yangilangan bo'lsa
+        # Agar ma'lumotlar yig'ilgan yoki yangilangan bo'lsa (Lid kartochkasi shakllantiriladi)
         if tayyor and xulosa:
             eski_xulosa = db.get_last_lead_summary(chat_id)
+            karta = await lid_kartochkasini_shakllantirish(tarix, message.from_user, xulosa)
             if not eski_xulosa:
                 # Birinchi marta to'liq hisobot shakllandi
                 db.mark_chat_completed(chat_id)
-                await leadni_saqla(chat_id, message.from_user, xulosa)
-                await egaga_xabar(ega_id, message.from_user, xulosa)
+                await leadni_saqla(chat_id, message.from_user, karta)
+                await egaga_xabar(ega_id, message.from_user, karta)
             elif xulosa.strip() != eski_xulosa.strip():
                 # Yangi yoki qo'shimcha ma'lumot kiritildi
-                await leadni_saqla(chat_id, message.from_user, xulosa)
-                await egaga_qoshimcha_xabar(ega_id, message.from_user, xulosa)
+                await leadni_saqla(chat_id, message.from_user, karta)
+                await egaga_qoshimcha_xabar(ega_id, message.from_user, karta)
 
 
 # =====================================================================

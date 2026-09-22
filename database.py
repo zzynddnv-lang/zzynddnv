@@ -69,7 +69,7 @@ def init_db():
             )
         """)
         
-        # 4) Leadlar (saralangan mijozlar) jadvali
+        # 4) Leadlar (saralangan mijozlar - Lid kartochkasi) jadvali
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,9 +78,32 @@ def init_db():
                 username TEXT,
                 telegram_id INTEGER,
                 xulosa TEXT,
+                telefon TEXT,
+                mahsulot TEXT,
+                profil TEXT,
+                miqdor TEXT,
+                manzil TEXT,
+                zamer TEXT,
+                holat TEXT DEFAULT 'Yangi lid',
                 created_at TEXT
             )
         """)
+        
+        # Yangi ustunlar mavjud bo'lmasa, avtomatik qo'shish (migratsiya)
+        yangi_ustunlar = [
+            ("telefon", "TEXT"),
+            ("mahsulot", "TEXT"),
+            ("profil", "TEXT"),
+            ("miqdor", "TEXT"),
+            ("manzil", "TEXT"),
+            ("zamer", "TEXT"),
+            ("holat", "TEXT DEFAULT 'Yangi lid'"),
+        ]
+        for ustun_nomi, ustun_turi in yangi_ustunlar:
+            try:
+                cursor.execute(f"ALTER TABLE leads ADD COLUMN {ustun_nomi} {ustun_turi};")
+            except Exception:
+                pass
         
         # 5) So'rovlarni tezlashtiruvchi indekslar
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages (chat_id, id DESC);")
@@ -238,15 +261,34 @@ def clear_owner_activity(chat_id: int):
         cursor.execute("UPDATE chats SET owner_last_active = NULL WHERE chat_id = ?", (chat_id,))
 
 
-def save_lead(chat_id: int, full_name: str, username: str, telegram_id: int, xulosa: str):
-    """Yangi leadni ma'lumotlar bazasiga saqlaydi."""
+def save_lead(
+    chat_id: int,
+    full_name: str,
+    username: str,
+    telegram_id: int,
+    xulosa: str,
+    telefon: str = "",
+    mahsulot: str = "",
+    profil: str = "",
+    miqdor: str = "",
+    manzil: str = "",
+    zamer: str = "",
+    holat: str = "🟡 Yangi lid",
+):
+    """Yangi lead (Lid kartochkasi)ni SQLite bazasiga saqlaydi."""
     vaqt = datetime.now().strftime("%Y-%m-%d %H:%M")
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO leads (chat_id, full_name, username, telegram_id, xulosa, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (chat_id, full_name, username, telegram_id, xulosa, vaqt))
+            INSERT INTO leads (
+                chat_id, full_name, username, telegram_id, xulosa,
+                telefon, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            chat_id, full_name, username, telegram_id, xulosa,
+            telefon, mahsulot, profil, miqdor, manzil, zamer, holat, vaqt
+        ))
 
 
 def get_recent_leads(limit: int = 5) -> List[sqlite3.Row]:
@@ -254,7 +296,7 @@ def get_recent_leads(limit: int = 5) -> List[sqlite3.Row]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, full_name, username, telegram_id, xulosa, created_at
+            SELECT id, full_name, username, telegram_id, xulosa, telefon, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
             FROM leads
             ORDER BY id DESC
             LIMIT ?
@@ -267,7 +309,7 @@ def get_all_leads() -> List[sqlite3.Row]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, full_name, username, telegram_id, xulosa, created_at
+            SELECT id, full_name, username, telegram_id, xulosa, telefon, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
             FROM leads
             ORDER BY id DESC
         """)
