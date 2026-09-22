@@ -239,7 +239,8 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
         }]
 
     messages = [{"role": "system", "content": TIZIM_KORSATMASI}] + tarix + qoshimcha
-    modellar = [MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+    # Dublikatlardan xoli tartiblangan model ro'yxati
+    modellar = list(dict.fromkeys([MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]))
     oxirgi_xato = None
 
     for m in modellar:
@@ -293,13 +294,23 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, xulosa: str):
 
 
 async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
-    """Suhbat yakunlanganda bot egasiga hisobot yuboradi."""
-    username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
+    """Suhbat yakunlanganda bot egasiga hisobot yuboradi (tezkor qo'ng'iroq va profil havolasi bilan)."""
+    username_matn = f"@{mijoz.username}" if mijoz.username else "username yo'q"
+    mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{mijoz.full_name}</a>"
+    
+    # Telefon raqam aniqlansa, to'g'ridan-to'g'ri qo'ng'iroq qilish tugma-havolasi
+    tel_match = PHONE_REGEX.search(xulosa)
+    tel_link = ""
+    if tel_match:
+        tel_toza = re.sub(r'[^\d+]', '', tel_match.group(0))
+        tel_link = f"\n📞 <b>Tezkor qo'ng'iroq:</b> <a href='tel:{tel_toza}'>{tel_match.group(0)}</a>"
+
     matn = (
         "🔔 <b>Yangi mijoz murojaati (AKFA buyurtma)</b>\n\n"
-        f"👤 <b>Mijoz:</b> {mijoz.full_name} ({username})\n"
-        f"🆔 <b>ID:</b> <code>{mijoz.id}</code>\n\n"
-        f"📋 <b>Buyurtma tafsilotlari va xulosa:</b>\n{xulosa}"
+        f"👤 <b>Mijoz:</b> {mijoz_link} ({username_matn})\n"
+        f"🆔 <b>Telegram ID:</b> <code>{mijoz.id}</code>{tel_link}\n\n"
+        f"📋 <b>Buyurtma tafsilotlari va xulosa:</b>\n{xulosa}\n\n"
+        "💡 <i>Mijoz profiliga o'tish uchun ismini bosing.</i>"
     )
     try:
         await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
@@ -310,9 +321,10 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, xulosa: str):
 async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, xulosa: str):
     """Mijoz qo'shimcha ma'lumot yozganda bot egasiga bildirishnoma."""
     username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
+    mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{mijoz.full_name}</a>"
     matn = (
         "🔔 <b>Mijozdan yangilangan buyurtma ma'lumoti:</b>\n\n"
-        f"👤 <b>Mijoz:</b> {mijoz.full_name} ({username})\n"
+        f"👤 <b>Mijoz:</b> {mijoz_link} ({username})\n"
         f"🆔 <b>ID:</b> <code>{mijoz.id}</code>\n\n"
         f"📝 <b>Yangi xulosa:</b>\n{xulosa}"
     )
@@ -332,11 +344,13 @@ async def start_komandasi(message: types.Message):
     await message.answer(
         f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
         f"🤖 Men sizning (<b>{EGA_ISMI}</b>) AKFA mahsulotlari bo'yicha Telegram Business savdo yordamchingizman.\n"
-        "Mijozlarga deraza, eshik, narxlar va sifat bo'yicha to'liq maslahat beraman, matnli va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
+        "Mijozlarga deraza, eshik, narxlar va sifat bo'yicha mustaqil maslahat beraman, matnli, rasm va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
         "Buyruqlar:\n"
         "• /leads — Oxirgi kelgan buyurtmalar (leadlar) ro'yxati\n"
+        "• /export — Barcha buyurtmalarni Excel (CSV) faylda yuklab olish\n"
         "• /stats — Umumiy statistika (Baza bo'yicha)\n"
-        "• /reset &lt;chat_id&gt; — Chatni qayta faollashtirish\n"
+        "• /resume &lt;chat_id&gt; — Chatda botni qayta faollashtirish\n"
+        "• /reset &lt;chat_id&gt; — Chat xotirasini tozalash\n"
         "• /help — Yordam va qo'llanma",
         parse_mode="HTML"
     )
@@ -352,13 +366,46 @@ async def leads_komandasi(message: types.Message):
 
     javob = "📋 <b>Oxirgi 5 ta murojaat:</b>\n\n"
     for idx, row in enumerate(oxirgi_leadlar, 1):
+        username_matn = f"@{row['username']}" if row['username'] and not str(row['username']).startswith('@') else (row['username'] or 'yo\'q')
+        mijoz_link = f"<a href='tg://user?id={row['telegram_id']}'>{row['full_name']}</a>"
         javob += (
-            f"{idx}. <b>{row['full_name']}</b> ({row['username'] or 'username yoq'}) "
+            f"{idx}. <b>{mijoz_link}</b> ({username_matn}) "
             f"— <i>{row['created_at']}</i>\n"
             f"📝 {row['xulosa']}\n\n"
         )
 
     await message.answer(javob, parse_mode="HTML")
+
+
+@dp.message(Command("export"))
+@dp.message(Command("excel"))
+async def export_komandasi(message: types.Message):
+    """Leadlar ro'yxatini Excel/CSV fayl ko'rinishida yuboradi."""
+    all_leads = db.get_all_leads()
+    if not all_leads:
+        await message.answer("Hozircha saqlangan buyurtmalar (leadlar) mavjud emas.")
+        return
+
+    # CSV faylni to'liq va yangilangan holda shakllantiramiz
+    async with csv_lock:
+        try:
+            with open(LEADLAR_FAYLI, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Sana", "Ism", "Username", "Telegram ID", "Xulosa"])
+                for r in all_leads:
+                    writer.writerow([r["created_at"], r["full_name"], r["username"], r["telegram_id"], r["xulosa"]])
+        except Exception as e:
+            logging.error("CSV yozishda xato: %s", e)
+
+    try:
+        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"AKFA_Buyurtmalar_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+        await message.answer_document(
+            document=fayl,
+            caption="📊 <b>Barcha AKFA buyurtmalari (leadlar) ro'yxati</b>\nUshbu faylni telefon yoki kompyuterda Excel dasturida ochishingiz mumkin.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"Faylni yuborishda xatolik yuz berdi: {e}")
 
 
 @dp.message(Command("stats"))
@@ -374,6 +421,18 @@ async def stats_komandasi(message: types.Message):
         f"🎙 Ovoz modeli: <code>{WHISPER_MODEL}</code>"
     )
     await message.answer(matn, parse_mode="HTML")
+
+
+@dp.message(Command("resume"))
+async def resume_komandasi(message: types.Message):
+    """Bot egasi mijoz bilan gaplashib bo'lgach, botni ushbu chatda yana faollashtirish."""
+    qismlar = message.text.split()
+    if len(qismlar) > 1 and qismlar[1].lstrip("-").isdigit():
+        target_id = int(qismlar[1])
+        db.clear_owner_activity(target_id)
+        await message.answer(f"✅ Chat <code>{target_id}</code> da bot qayta faollashtirildi. Endi mijoz yozsa, bot darhol javob beradi.", parse_mode="HTML")
+    else:
+        await message.answer("Iltimos, chat ID sini kiriting. Masalan:\n<code>/resume 12345678</code>", parse_mode="HTML")
 
 
 @dp.message(Command("reset"))
@@ -395,9 +454,9 @@ async def help_komandasi(message: types.Message):
         "💡 <b>AKFA Savdo Boti Qo'llanmasi:</b>\n\n"
         "1. Bot Telegram Business orqali shaxsiy akkauntingizga ulangan bo'lishi kerak.\n"
         "2. Yangi mijoz yozganda AI AKFA derazalari, eshiklari, narxlari va sifati bo'yicha mustaqil maslahat beradi.\n"
-        "3. Mijozning telefon raqami va buyurtma tafsilotlari aniqlangach, sizga bildirishnoma yuboradi.\n"
-        "4. Suhbat yakunlanganidan keyin ham mijoz yozsa, doim muloyim javob berishda davom etadi.\n"
-        "5. Agar siz mijozga o'zingiz yozsangiz, bot sizning suhbatingizga xalaqit bermaydi.",
+        "3. Mijoz matn, <b>ovoz (voice)</b>, <b>video-xabar (kruglyash)</b>, <b>rasm (izohi bilan)</b>, <b>kontakt</b> yoki <b>lokatsiya</b> yuborsa ham bot to'liq tushunadi.\n"
+        "4. Mijozning telefon raqami va buyurtma tafsilotlari aniqlangach, sizga bildirishnoma keladi va Excelga yoziladi.\n"
+        "5. Agar siz mijozga o'zingiz yozsangiz, bot 30 daqiqa davomida suhbatga xalaqit bermaydi. Qayta faollashtirish uchun: <code>/resume &lt;chat_id&gt;</code>.",
         parse_mode="HTML"
     )
 
@@ -419,19 +478,48 @@ async def xabar_keldi(message: types.Message):
     ega_id = await ega_id_ol(message.business_connection_id)
     chat_id = message.chat.id
 
-    # Agar bot egasi o'zi yozsa, bot o'z egasiga javob qaytarmaydi
+    # Agar bot egasi o'zi yozsa, faollik vaqtini saqlaydi va bot javob qaytarmaydi
     if message.from_user is None or message.from_user.id == ega_id:
+        db.record_owner_activity(chat_id)
         return
 
-    # 1) Xabar turini aniqlash (Matn yoki Ovoz)
+    # Agar bot egasi so'nggi 30 daqiqada ushbu mijoz bilan o'zi gaplashgan bo'lsa,
+    # bot jonli suhbatga xalaqit bermaydi
+    if db.is_owner_recently_active(chat_id, minutes=30):
+        logging.info("Chat %s da bot egasi faol, bot aralashmaydi.", chat_id)
+        return
+
+    # 1) Xabar turini aniqlash (Matn, Kontakt, Rasm, Lokatsiya, Ovoz, Kruglyash, Audio, Hujjat)
     xabar_matni = ""
     if message.text:
         xabar_matni = message.text.strip()
+    elif message.contact:
+        # Mijoz Telegram orqali telefon raqamini (kontakt) ulashdi
+        tel = message.contact.phone_number
+        ism = f"{message.contact.first_name or ''} {message.contact.last_name or ''}".strip()
+        xabar_matni = f"Mening ismim: {ism}, telefon raqamim: {tel}. Bepul o'lchash (zamer) uchun ma'lumot qoldirdim."
+    elif message.photo:
+        # Mijoz rasm yubordi (masalan rom yoki eshik rasmi)
+        caption = message.caption.strip() if message.caption else ""
+        if caption:
+            xabar_matni = f"[Mijoz rom/eshik rasmini yubordi va izoh yozdi]: {caption}"
+        else:
+            xabar_matni = "Mijoz xona yoki oyna rasmini yubordi. Rasm uchun rahmat aytib, o'lchamlari va qanday mahsulot kerakligini so'ra."
+    elif message.location:
+        # Mijoz zamer uchun lokatsiya yubordi
+        lat, lon = message.location.latitude, message.location.longitude
+        xabar_matni = f"Mijoz zamer uchun manzil lokatsiyasini yubordi (Kenglik: {lat}, Uzunlik: {lon}). Zamer manzili qabul qilinganini ayt."
     elif message.voice:
         # Telegram ovozli xabarini (voice) Whisper orqali matnga o'giramiz
         xabar_matni = await ovozni_matnga_aylantirish(message.voice.file_id, "voice.ogg")
         if not xabar_matni:
             await yubor(message, "Kechirasiz, ovozli xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
+            return
+    elif message.video_note:
+        # Telegram kruglyash (dumaloq video) ovozini Whisper orqali matnga o'giramiz
+        xabar_matni = await ovozni_matnga_aylantirish(message.video_note.file_id, "video_note.mp4")
+        if not xabar_matni:
+            await yubor(message, "Kechirasiz, video xabardagi ovozni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
             return
     elif message.audio:
         # Oddiy audio faylni Whisper orqali matnga o'giramiz
@@ -439,6 +527,9 @@ async def xabar_keldi(message: types.Message):
         if not xabar_matni:
             await yubor(message, "Kechirasiz, audio xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
             return
+    elif message.document:
+        caption = message.caption.strip() if message.caption else ""
+        xabar_matni = f"[Mijoz hujjat/fayl yubordi]: {caption}" if caption else "Mijoz fayl yubordi. Savolingizni matn ko'rinishida yozing."
     else:
         await yubor(message, "Iltimos, savolingizni matn yoki ovozli xabar ko'rinishida yuboring.")
         return
