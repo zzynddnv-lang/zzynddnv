@@ -48,10 +48,11 @@ pip install -r requirements.txt
 ### 2. Sozlamalarni tekshirish (.env)
 `.env` faylida o'zingizning bot tokeningiz va Groq kalitingiz borligiga ishonch hosil qiling:
 ```env
-BOT_TOKEN=8765266953:AAED...
-GROQ_API_KEY=gsk_...
+BOT_TOKEN=sizning_bot_tokeningiz
+GROQ_API_KEY=sizning_groq_api_kalitingiz
 EGA_ISMI=Zuxriddin
-MODEL=llama-3.1-8b-instant
+MODEL=qwen/qwen3.8-27b
+GOOGLE_SHEET_WEBHOOK_URL=sizning_google_sheet_webhook_havolangiz
 ```
 
 ---

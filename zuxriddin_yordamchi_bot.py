@@ -31,6 +31,7 @@ try:
     from aiogram.filters import CommandStart, Command
     from aiogram.exceptions import TelegramAPIError
     from groq import AsyncGroq
+    from aiohttp import web
 except ModuleNotFoundError as exc:
     raise SystemExit(
         "Kerakli paketlar topilmadi. Quyidagi buyruqni ishga tushiring:\n"
@@ -136,9 +137,9 @@ def init_runtime():
     global bot, dp, groq_client
 
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN topilmadi! .env fayliga BOT_TOKEN=... ni kiriting.")
+        raise RuntimeError("BOT_TOKEN topilmadi! Render boshqaruv panelidagi 'Environment' bo'limiga BOT_TOKEN ni kiriting.")
     if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY topilmadi! .env fayliga GROQ_API_KEY=... ni kiriting.")
+        raise RuntimeError("GROQ_API_KEY topilmadi! Render boshqaruv panelidagi 'Environment' bo'limiga GROQ_API_KEY ni kiriting.")
 
     if bot is None:
         bot = Bot(token=BOT_TOKEN)
@@ -758,18 +759,50 @@ async def xabar_keldi(message: types.Message):
 
 
 # =====================================================================
-#  BOTNI ISHGA TUSHIRISH
+#  RENDER CLOUD UCHUN HEALTH CHECK WEB SERVER VA ISHGA TUSHIRISH
 # =====================================================================
+
+async def handle_ping(request):
+    """Render yoki Uptime monitoring uchun Health Check javobi."""
+    return web.json_response({
+        "status": "online",
+        "service": "AKFA Savdo Yordamchisi",
+        "owner": EGA_ISMI,
+        "message": "Bot 24/7 faol ishlamoqda! 🟢"
+    })
+
+
+async def start_web_server():
+    """Render Free Web Service talab qiladigan HTTP serverni ishga tushiradi."""
+    port = int(os.getenv("PORT", "8080"))
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    app.router.add_get("/health", handle_ping)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info("Render HTTP Health Check server %s-portda ishga tushdi.", port)
+    return runner
+
 
 async def main():
     global bot, dp, groq_client
     bot, dp, groq_client = init_runtime()
+
+    # 1) Render Web Service uchun port ochish va health-check serverni yoqish
+    runner = await start_web_server()
+
     logging.info("AKFA Savdo Boti muvaffaqiyatli ishga tushdi! To'xtatish uchun: Ctrl + C")
-    
-    await dp.start_polling(
-        bot,
-        allowed_updates=dp.resolve_used_update_types(),
-    )
+
+    try:
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+        )
+    finally:
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
