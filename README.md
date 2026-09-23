@@ -1,6 +1,6 @@
-# 🤖 Zuxriddin Yordamchisi - Telegram Business AI Bot
+# 🤖 Zuxriddinning Shaxsiy AI Yordamchisi (Executive Personal Assistant)
 
-Ushbu bot Telegram Business hisobingizga kelgan yangi matnli va **ovozli (voice)** xabarlarga sun'iy intellekt (**Groq Llama 3.1 & Whisper**) orqali avtomatik javob beradi, mijoz haqidagi asosiy ma'lumotlarni aniqlaydi, suhbatlarni **SQLite** bazasida saqlaydi va sizga tayyor hisobot taqdim etadi.
+Ushbu bot Telegram Business hisobingizga kelgan barcha matnli, **ovozli (voice)**, **video (kruglyash)** va rasm xabarlariga sun'iy intellekt (**Groq Qwen 27B & Whisper Turbo**) orqali avtomatik javob beradi. Zuxriddin onlayn bo'lmaganda suhbatdoshni samimiy kutib oladi, har qanday savoliga javob beradi, uning kimligi va maqsadini to'liq aniqlab, Zuxriddinga dosye yuboradi hamda Google Sheets jadvaliga sinxronizatsiya qiladi.
 
 ---
 

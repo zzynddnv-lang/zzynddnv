@@ -69,7 +69,7 @@ def init_db():
             )
         """)
         
-        # 4) Leadlar (saralangan mijozlar - Lid kartochkasi) jadvali
+        # 4) Murojaatlar (dosyelar / leadlar) jadvali
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,12 +79,15 @@ def init_db():
                 telegram_id INTEGER,
                 xulosa TEXT,
                 telefon TEXT,
+                tashkilot TEXT,
+                mavzu TEXT,
+                muhimlik TEXT,
                 mahsulot TEXT,
                 profil TEXT,
                 miqdor TEXT,
                 manzil TEXT,
                 zamer TEXT,
-                holat TEXT DEFAULT 'Yangi lid',
+                holat TEXT DEFAULT 'Yangi',
                 created_at TEXT
             )
         """)
@@ -92,12 +95,15 @@ def init_db():
         # Yangi ustunlar mavjud bo'lmasa, avtomatik qo'shish (migratsiya)
         yangi_ustunlar = [
             ("telefon", "TEXT"),
+            ("tashkilot", "TEXT"),
+            ("mavzu", "TEXT"),
+            ("muhimlik", "TEXT"),
             ("mahsulot", "TEXT"),
             ("profil", "TEXT"),
             ("miqdor", "TEXT"),
             ("manzil", "TEXT"),
             ("zamer", "TEXT"),
-            ("holat", "TEXT DEFAULT 'Yangi lid'"),
+            ("holat", "TEXT DEFAULT 'Yangi'"),
         ]
         for ustun_nomi, ustun_turi in yangi_ustunlar:
             try:
@@ -268,35 +274,38 @@ def save_lead(
     telegram_id: int,
     xulosa: str,
     telefon: str = "",
+    tashkilot: str = "",
+    mavzu: str = "",
+    muhimlik: str = "Oddiy",
     mahsulot: str = "",
     profil: str = "",
     miqdor: str = "",
     manzil: str = "",
     zamer: str = "",
-    holat: str = "🟡 Yangi lid",
+    holat: str = "🟡 Yangi murojaat",
 ):
-    """Yangi lead (Lid kartochkasi)ni SQLite bazasiga saqlaydi."""
+    """Yangi murojaat dosyesini SQLite bazasiga saqlaydi."""
     vaqt = datetime.now().strftime("%Y-%m-%d %H:%M")
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO leads (
                 chat_id, full_name, username, telegram_id, xulosa,
-                telefon, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
+                telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             chat_id, full_name, username, telegram_id, xulosa,
-            telefon, mahsulot, profil, miqdor, manzil, zamer, holat, vaqt
+            telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, vaqt
         ))
 
 
 def get_recent_leads(limit: int = 5) -> List[sqlite3.Row]:
-    """Oxirgi kelgan leadlar ro'yxatini qaytaradi."""
+    """Oxirgi kelgan murojaatlar ro'yxatini qaytaradi."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, full_name, username, telegram_id, xulosa, telefon, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
+            SELECT id, full_name, username, telegram_id, xulosa, telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
             FROM leads
             ORDER BY id DESC
             LIMIT ?
@@ -305,11 +314,11 @@ def get_recent_leads(limit: int = 5) -> List[sqlite3.Row]:
 
 
 def get_all_leads() -> List[sqlite3.Row]:
-    """Barcha leadlar ro'yxatini eksport uchun qaytaradi."""
+    """Barcha murojaatlar ro'yxatini eksport uchun qaytaradi."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, full_name, username, telegram_id, xulosa, telefon, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
+            SELECT id, full_name, username, telegram_id, xulosa, telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
             FROM leads
             ORDER BY id DESC
         """)

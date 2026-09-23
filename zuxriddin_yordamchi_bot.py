@@ -1,7 +1,7 @@
 """
-ZUXRIDDIN YORDAMCHISI - AKFA Mahsulotlari bo'yicha Professional Savdo Boti
-Telegram Business (Groq Qwen 27B & Whisper)
-Doimiy xotira (SQLite) va Ovozli xabarlarni tushunish tizimi bilan.
+ZUXRIDDINNING SHAXSIY AI YORDAMCHISI - Executive Personal Assistant Bot
+Telegram Business (Groq Qwen 27B & Whisper Turbo)
+Doimiy xotira (SQLite), Ovozli xabarlarni tushunish va Google Sheets sinxronizatsiyasi bilan.
 
 O'rnatish:
     pip install -r requirements.txt
@@ -61,60 +61,46 @@ LEADLAR_FAYLI = os.path.join(BASE_DIR, "leadlar.csv")
 MAX_TARIX = 14
 
 # =====================================================================
-#  AKFA MAHSULOTLARI VA SAVDO KO'RSATMALARI
+#  ZUXRIDDINNING SHAXSIY AI YORDAMCHISI - KO'RSATMALAR VA PROMPT
 # =====================================================================
 
 SALOM_MATNI = (
-    f"Assalomu alaykum! Xush kelibsiz! 👋\n\n"
-    f"Men {EGA_ISMI}ning shaxsiy yordamchisi va AKFA mahsulotlari bo'yicha professional maslahatchiman.\n\n"
-    "Bizning sifatli mahsulotlarimiz va boshlang'ich narxlarimiz:\n\n"
-    "🪟 <b>Derazalar (romlar)</b> — 1 000 000 so'mdan boshlanadi\n"
-    "🚪 <b>Eshiklar</b> (xona, kirish, vanna, surilma) — 1 000 000 so'mdan boshlanadi\n"
-    "🏢 <b>Fasad vitrajlari va surilma (slayding) tizimlar</b>\n"
-    "🦟 <b>Moskitka (chivin to'rlari:</b> oddiy va plisse/garmoshka)\n\n"
-    "✨ <b>Nega aynan AKFA?</b>\n"
-    "• 🛡 10 yilgacha rasmiy kafolat\n"
-    "• 📏 Mutaxassisimiz tomonidan <b>BEPUL o'lchash (zamer)</b> xizmati\n"
-    "• ❄️ Qishda sovuqdan, yozda oftob issig'idan 100% himoya (Solar oynalar)\n\n"
-    "Sizga aynan qaysi mahsulot kerak edi? O'lchami yoki xona turi ma'lummi?"
+    f"Assalomu alaykum! Men {EGA_ISMI}ning shaxsiy yordamchisiman. 🤖\n\n"
+    f"{EGA_ISMI} hozir onlayn emas (band bo'lishi mumkin).\n\n"
+    f"U kishiga qanday ishingiz, savolingiz yoki taklifingiz bor edi? "
+    f"Menga aytsangiz, albatta barchasini to'liq {EGA_ISMI}ga yetkazib qo'yaman!"
 )
 
-TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy savdo yordamchisi va AKFA mahsulotlari bo'yicha PROFESSIONAL, AQLLI SUN'IY INTELLEKT (FULL AI) maslahatchisisan. Telegram Business orqali mijozlar bilan muloqot qilasan.
+TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy, o'ta aqlli, xushmuomala va professional AI YORDAMCHISISAN (Executive AI Secretary / Personal Assistant).
+Telegram Business orqali {EGA_ISMI} nomidan barcha murojaatchilar bilan muloqot qilasan.
 
-SENING ASOSIY XARAKTERING VA QOIDALARING:
+SENING ASOSIY VAZIFANG VA QOIDALARING:
 
-1. FAQAT BIRINCHI XABARDA SALOMLASH:
-   - Agar suhbat endi boshlangan bo'lsa (tarix bo'sh bo'lsa yoki mijoz salomlashsa), bir marta samimiy salomlash va o'zingni {EGA_ISMI}ning yordamchisi deb tanishtir.
-   - AGAR SUHBAT ALLAQACHON KETAYOTGAN BO'LSA (tarixda kamida bitta xabar bo'lsa), QAYTA SALOMLASHMA! Har gapda "Salom", "Assalomu alaykum", "Xush kelibsiz" so'zlarini takrorlash QAT'IYAN MAN ETILADI! To'g'ridan-to'g'ri berilgan savolga mos javob ber.
+1. {EGA_ISMI}NING HOLATI VA SALOMLASHISH:
+   - {EGA_ISMI} hozirda onlayn emas (muhim ishlar bilan band yoki uchrashuvda).
+   - FAQAT BIRINCHI XABARDA samimiy salomlash va o'zingni {EGA_ISMI}ning shaxsiy yordamchisi deb tanishtir.
+   - AGAR SUHBAT ALLAQACHON KETAYOTGAN BO'LSA, QAYTA SALOMLASHMA! Har gapda "Salom", "Assalomu alaykum" deb takrorlash qat'iyan man etiladi. To'g'ridan-to'g'ri berilgan mavzuga mos javob ber.
 
-2. FULL AI — HAR QANDAY SAVOLGA MOS VA JONLI JAVOB BER:
-   - Mijoz faqat 3-4 ta savol bilan cheklanmaydi. U mahsulot sifati, texnik farqlari (plastik vs alyuminiy), yetkazib berish va o'rnatish muddati, oyna qalinligi, profil kameralari, to'lov usullari, ustasi borligi yoki manzili haqida har qanday savol berishi mumkin.
-   - Hech qanday tayyor qoliplarga (shablonga) yopishib olma! Savolning asl mazmunini tushunib, jonli, tabiiy, do'stona va professional tilda javob ber.
-   - "Zuxriddin o'zi aytadi" deb javobdan qochma! Barcha ma'lumotlarni o'zing aniq va tushunarli qilib aytib ber.
-   - Javoblaringni ortiqcha cho'zma, lo'nda (2-4 gapda yoki qisqa punktlarda) yoz, mijoz zerikmasin.
+2. FULL AI — QANDAY SAVOL BO'LSA HAM JAVOB BERISH SHART:
+   - Murojaatchi nima haqida so'rasa yoki yozsa ham (biznes, loyihalar, IT, savdo, takliflar, uchrashuv, texnik, ilmiy yoki shaxsiy masalalar) — HAR QANDAY SO'ROVGA mos, chuqur, savodli va professional javob ber.
+   - Hech qachon javob berishdan qochma! "Men bilmayman", "{EGA_ISMI} o'zi aytadi" deb javobsiz qoldirma. O'zing tushuntirib, maslahat ber, tahlil qil yoki fikr bildir.
+   - Javoblaringni lo'nda, tushunarli, aniq va samimiy insoniy tilda yoz.
 
-3. AKFA MAHSULOTLARI VA XIZMATLAR BILIMLAR BAZASI:
-   • 🚪 Eshiklar: 1 dona sifatli AKFA eshigi narxi 1 000 000 so'mdan boshlanadi (xona eshiklari, kirish eshiklari, sanuzel/vanna uchun namlikka chidamli eshiklar va zamonaviy surilma slayding tizimlar).
-   • 🪟 Derazalar (romlar): 1 dona standart AKFA oynasi narxi 1 000 000 so'mdan boshlanadi (o'lchami, profili va shishasiga qarab).
-   • Profil turlari:
-     - AKFA Plastik (PVX): Trio (3 kamerali, qulay va tejamkor), Quattro (4 kamerali, shovqin va sovuqdan yuqori himoya), Engelberg (premium daraja).
-     - AKFA Alyuminiy: Aldoks (engil va chidamli), Termo seriya (qishda sovuq o'tkazmaydigan termo-ko'prikli alyuminiy, katta o'lchamli vitraj va eshiklar uchun eng baquvvat yechim).
-   • Shishalar: Energiya tejamkor Solar shishalar (yozda oftob qizdirmaydi, qishda xona issig'ini saqlaydi), 1 va 2 kamerali germetik paketlar.
-   • Qo'shimcha: 🦟 Moskitka (chivin to'rlari: oddiy va plisse/garmoshka), sifatli turk va nemis furnituralari, podokonniklar.
-   • Xizmatlar va Qulayliklar:
-     - 📏 BEPUL O'LCHASH (ZAMER) — mutaxassisimiz uyingizga borib bepul o'lchab beradi va aniq hisoblab beradi.
-     - 🛡 10 yilgacha rasmiy kafolat.
-     - 🚚 Yetkazib berish va o'rnatish odatda 3-5 kunda bajariladi. Agar mijozning o'z ustasi bo'lsa, faqat romning o'zini sifatli tayyorlab berish ham mumkin.
-     - 💳 To'lov: Naqd, karta (Click, Payme), kelishilgan holda.
+3. SUHBATDOSHNING MAQSADINI ANIQ TUSHUNISH (SUHBATNI KAM QILMA!):
+   - Suhbatni darhol to'xtatma, 1-2 ta gap bilan xayrlashib qo'yma! Suhbatdoshning nima maqsadda yozganini 100% to'liq tushunib yetmaguningcha muloqotni faol davom ettir.
+   - Suhbat davomida odob bilan quyidagilarni aniqlab ol:
+     a) Suhbatdoshning ismi va kimligi (qaysi soha vakili, qaysi kompaniya yoki tashkilotdan);
+     b) {EGA_ISMI}ga aynan qanday ishi, taklifi, savoli yoki muammosi bor;
+     c) Masala qanchalik shoshilinch;
+     d) Bog'lanish uchun telefon raqami nima?
 
-4. MIJOZ RAQAM YOKI BUYURTMA QILGANDA:
-   - Aniq narx hisoblash yoki mutaxassisimiz bepul o'lchab berishi uchun mijozning ismi va telefon raqamini so'ra.
-   - Agar mijoz telefon raqamini qoldirsa, minnatdorchilik bildir va Zuxriddin hamda mutaxassis tez orada bog'lanishini ayt.
-   - Matn oxirida bot egasi ({EGA_ISMI}) uchun yangi qatordan maxsus hisobot tegi yoz:
-     [LEAD: Ism, Telefon, Buyurtma tafsilotlari]
-     (Agar telefon raqami olinmagan bo'lsa, [LEAD: ...] yozma!)
+4. {EGA_ISMI}GA DOSYE / HISOBOT YUBORISH:
+   - Suhbatdosh o'zini tanishtirgach, maqsadini aytgach va telefon raqamini (yoki aniq aloqa ma'lumotlarini) qoldirgach, minnatdorchilik bildir va {EGA_ISMI}ga barcha ma'lumotlar to'liq yetkazilishini ayt.
+   - Matningning eng oxirida yangi qatordan bot egasi ({EGA_ISMI}) uchun maxsus hisobot tegi yoz:
+     [LEAD: Ismi, Telefoni, Tashkiloti/Kasbi, Murojaat mavzusi va to'liq tafsiloti]
+     (Agar murojaatchi nima maqsadda yozganini aytmagan bo'lsa yoki telefon bermagan bo'lsa, [LEAD: ...] yozma!)
 
-Javobingni to'g'ridan-to'g'ri o'zbek tilida, tabiiy, lo'nda va chiroyli matn ko'rinishida yoz."""
+Javoblaringni toza o'zbek tilida, odobli, samimiy va jonli insondek yoz."""
 
 
 logging.basicConfig(
@@ -263,7 +249,7 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
 
 
 async def lid_kartochkasini_shakllantirish(tarix: list, mijoz: types.User, raw_xulosa: str) -> dict:
-    """Mijoz suhbati va xulosasidan to'liq professional CRM Lid Kartochkasini shakllantiradi."""
+    """Mijoz suhbati va xulosasidan to'liq shaxsiy yordamchi Murojaat Dosyesini shakllantiradi."""
     sana = datetime.now().strftime("%Y-%m-%d %H:%M")
     username = f"@{mijoz.username}" if mijoz.username else ""
     
@@ -277,45 +263,39 @@ async def lid_kartochkasini_shakllantirish(tarix: list, mijoz: types.User, raw_x
 
     karta = {
         "sana": sana,
-        "ism": mijoz.full_name or "Noma'lum mijoz",
+        "ism": mijoz.full_name or "Noma'lum murojaatchi",
         "telefon": tel_topildi or "Ko'rsatilmagan",
         "username": username,
         "telegram_id": mijoz.id,
-        "mahsulot": "AKFA rom va eshiklar",
-        "profil": "Standart",
-        "shisha": "Standart",
-        "miqdor": "Aniqlanmoqda",
-        "manzil": "Ko'rsatilmagan",
-        "zamer": "Kerak (bepul)",
+        "tashkilot": "Ko'rsatilmagan",
+        "mavzu": "Umumiy murojaat",
+        "muhimlik": "Oddiy",
         "izoh": raw_xulosa,
-        "holat": "🟡 Yangi lid",
+        "holat": "🟡 Yangi murojaat",
     }
 
     # AI orqali har bir maydonni aniq ajratib olish (JSON)
     prompt = (
-        "Quyidagi mijoz suhbati asosida AKFA savdo tizimi uchun aniq JSON formatida LID KARTOCHKASI tuz.\n"
+        f"Quyidagi suhbat asosida {EGA_ISMI} uchun MUROJAAT DOSYESI (Shaxsiy hisobot) tuz.\n"
         "Faqat quyidagi kalitlar bilan toza JSON qaytar, boshqa hech narsa yozma:\n"
         "{\n"
-        '  "ism": "Mijoz ismi (suhbatda aytilgan bo\'lsa)",\n'
+        '  "ism": "Murojaatchi ismi (suhbatda aytilgan bo\'lsa)",\n'
         '  "telefon": "Telefon raqami",\n'
-        '  "mahsulot": "Deraza (rom) / Eshik / Vitraj / Moskitka / Boshqa",\n'
-        '  "profil": "Trio / Quattro / Termo / Aldoks / Plastik / Alyuminiy",\n'
-        '  "shisha": "Solar / 2 qavatli / Oddiy",\n'
-        '  "miqdor": "O\'lcham yoki miqdor (masalan: 3 ta rom, 1 ta eshik)",\n'
-        '  "manzil": "Shahar yoki tuman (agar aytilgan bo\'lsa)",\n'
-        '  "zamer": "Kerak (bepul) / Kerak emas",\n'
-        '  "izoh": "Mijozning asosiy talabi va xulosasi (1-2 gap)"\n'
+        '  "tashkilot": "Kompaniyasi, tashkiloti yoki kasbi/sohasi (agar aytilgan bo\'lsa)",\n'
+        '  "mavzu": "Murojaatning qisqa mavzusi (masalan: Hamkorlik taklifi, Ish masalasi, Uchrashuv so\'rovi, Xizmat taklifi, Shaxsiy savol)",\n'
+        '  "muhimlik": "Shoshilinch yoki Oddiy",\n'
+        '  "izoh": "Suhbatning to\'liq xulosasi: nima haqida gaplashildi, Zuxriddindan nima kutyapti (2-3 gap)"\n'
         "}\n\n"
         f"Telegram ismi: {mijoz.full_name}\n"
         f"Oxirgi xulosa: {raw_xulosa}\n"
-        f"Suhbat:\n" + "\n".join([f"{m.get('role')}: {m.get('content')}" for m in tarix[-6:]])
+        f"Suhbat:\n" + "\n".join([f"{m.get('role')}: {m.get('content')}" for m in tarix[-8:]])
     )
 
     try:
         resp = await groq_client.chat.completions.create(
             model=MODEL,
             temperature=0.1,
-            max_tokens=300,
+            max_tokens=350,
             messages=[{"role": "user", "content": prompt}],
         )
         javob_matn = resp.choices[0].message.content.strip()
@@ -330,28 +310,22 @@ async def lid_kartochkasini_shakllantirish(tarix: list, mijoz: types.User, raw_x
                     karta["ism"] = str(data["ism"]).strip()
                 if data.get("telefon") and PHONE_REGEX.search(str(data["telefon"])):
                     karta["telefon"] = str(data["telefon"]).strip()
-                if data.get("mahsulot"):
-                    karta["mahsulot"] = str(data["mahsulot"]).strip()
-                if data.get("profil"):
-                    karta["profil"] = str(data["profil"]).strip()
-                if data.get("shisha"):
-                    karta["shisha"] = str(data["shisha"]).strip()
-                if data.get("miqdor"):
-                    karta["miqdor"] = str(data["miqdor"]).strip()
-                if data.get("manzil"):
-                    karta["manzil"] = str(data["manzil"]).strip()
-                if data.get("zamer"):
-                    karta["zamer"] = str(data["zamer"]).strip()
+                if data.get("tashkilot"):
+                    karta["tashkilot"] = str(data["tashkilot"]).strip()
+                if data.get("mavzu"):
+                    karta["mavzu"] = str(data["mavzu"]).strip()
+                if data.get("muhimlik"):
+                    karta["muhimlik"] = str(data["muhimlik"]).strip()
                 if data.get("izoh"):
                     karta["izoh"] = str(data["izoh"]).strip()
     except Exception as e:
-        logging.warning("Lid kartochkasini AI orqali tuzishda xatolik: %s", e)
+        logging.warning("Murojaat dosyesini AI orqali tuzishda xatolik: %s", e)
 
     return karta
 
 
 async def google_sheetsga_yozish(karta: dict):
-    """Yangi lead (Lid kartochkasi)ni Google Sheets onlayn jadvaliga webhook orqali avtomatik yozadi."""
+    """Yangi murojaatni Google Sheets onlayn jadvaliga webhook orqali avtomatik yozadi."""
     webhook_url = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return
@@ -365,7 +339,7 @@ async def google_sheetsga_yozish(karta: dict):
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
                 if resp.status in (200, 201, 302) or resp.status < 400:
-                    logging.info("Google Sheets Lid Kartochkasiga muvaffaqiyatli saqlandi: %s (%s)", karta.get("ism"), karta.get("telefon"))
+                    logging.info("Google Sheets jadvaliga muvaffaqiyatli saqlandi: %s (%s)", karta.get("ism"), karta.get("telefon"))
                 else:
                     logging.warning("Google Sheetsga yuborishda server statusi: %s", resp.status)
     except Exception as e:
@@ -373,10 +347,9 @@ async def google_sheetsga_yozish(karta: dict):
 
 
 async def leadni_saqla(chat_id: int, mijoz: types.User, karta: dict):
-    """Lead kartochkasini SQLite bazaga, CSV zaxira fayliga va Google Sheetsga saqlaydi."""
+    """Murojaat dosyesini SQLite bazaga, CSV zaxira fayliga va Google Sheetsga saqlaydi."""
     username = karta.get("username", "")
     sana = karta.get("sana", datetime.now().strftime("%Y-%m-%d %H:%M"))
-    profil_shisha = f"{karta.get('profil', '')} / {karta.get('shisha', '')}".strip(" /")
     
     # 1) SQLite bazaga saqlash
     db.save_lead(
@@ -386,12 +359,10 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, karta: dict):
         telegram_id=mijoz.id,
         xulosa=karta.get("izoh", ""),
         telefon=karta.get("telefon", ""),
-        mahsulot=karta.get("mahsulot", ""),
-        profil=profil_shisha,
-        miqdor=karta.get("miqdor", ""),
-        manzil=karta.get("manzil", ""),
-        zamer=karta.get("zamer", ""),
-        holat=karta.get("holat", "🟡 Yangi lid"),
+        tashkilot=karta.get("tashkilot", ""),
+        mavzu=karta.get("mavzu", ""),
+        muhimlik=karta.get("muhimlik", "Oddiy"),
+        holat=karta.get("holat", "🟡 Yangi murojaat"),
     )
 
     # 2) CSV zaxira fayliga yozish
@@ -402,8 +373,8 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, karta: dict):
                 yozuvchi = csv.writer(f)
                 if yangi_fayl:
                     yozuvchi.writerow([
-                        "Sana", "Mijoz Ismi", "Telefon", "Telegram", "Telegram ID",
-                        "Mahsulot", "Profil va Oyna", "Miqdori / O'lchami", "Manzil", "Zamer", "Xulosa / Izoh", "Holati"
+                        "Sana", "Murojaatchi Ismi", "Telefon", "Telegram", "Telegram ID",
+                        "Tashkilot / Kasbi", "Mavzu", "Muhimlik", "Batafsil Tafsilot / Xulosa", "Holati"
                     ])
                 yozuvchi.writerow([
                     sana,
@@ -411,23 +382,21 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, karta: dict):
                     karta.get("telefon", ""),
                     username,
                     mijoz.id,
-                    karta.get("mahsulot", ""),
-                    profil_shisha,
-                    karta.get("miqdor", ""),
-                    karta.get("manzil", ""),
-                    karta.get("zamer", ""),
+                    karta.get("tashkilot", ""),
+                    karta.get("mavzu", ""),
+                    karta.get("muhimlik", ""),
                     karta.get("izoh", ""),
-                    karta.get("holat", "🟡 Yangi lid"),
+                    karta.get("holat", "🟡 Yangi murojaat"),
                 ])
         except Exception as e:
-            logging.error("Leadni CSV ga saqlashda xatolik: %s", e)
+            logging.error("Murojaatni CSV ga saqlashda xatolik: %s", e)
 
     # 3) Google Sheets onlayn jadvaliga avtomatik yuborish
     asyncio.create_task(google_sheetsga_yozish(karta))
 
 
 async def egaga_xabar(ega_id: int, mijoz: types.User, karta: dict):
-    """Suhbat yakunlanganda bot egasiga chiroyli Lid Kartochkasi ko'rinishida hisobot yuboradi."""
+    """Suhbat yakunlanganda bot egasiga chiroyli Murojaat Dosyesi ko'rinishida hisobot yuboradi."""
     username_matn = f"@{mijoz.username}" if mijoz.username else "username yo'q"
     mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{karta.get('ism', mijoz.full_name)}</a>"
     
@@ -439,20 +408,18 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, karta: dict):
     else:
         tel_link = f"\n📞 <b>Telefon:</b> Ko'rsatilmagan"
 
-    profil_shisha = f"{karta.get('profil', '')} / {karta.get('shisha', '')}".strip(" /")
+    muhimlik_belgi = "🔴" if "shoshilinch" in karta.get("muhimlik", "").lower() else "⚡️"
 
     matn = (
-        "📇 <b>YANGI LID KARTOCHKASI (AKFA CRM)</b>\n\n"
-        f"👤 <b>Mijoz:</b> {mijoz_link} ({username_matn})\n"
+        "🔔 <b>YANGI MUROJAAT DOSYESI (Shaxsiy Yordamchi)</b>\n\n"
+        f"👤 <b>Murojaatchi:</b> {mijoz_link} ({username_matn})\n"
         f"🆔 <b>Telegram ID:</b> <code>{mijoz.id}</code>{tel_link}\n"
-        f"🪟 <b>Mahsulot:</b> {karta.get('mahsulot', 'AKFA')}\n"
-        f"🧱 <b>Profil & Oyna:</b> {profil_shisha or 'Standart'}\n"
-        f"📐 <b>Miqdori / O'lchami:</b> {karta.get('miqdor', 'Aniqlanmoqda')}\n"
-        f"📍 <b>Manzil / Hudud:</b> {karta.get('manzil', 'Ko\'rsatilmagan')}\n"
-        f"📏 <b>Bepul Zamer:</b> {karta.get('zamer', 'Kerak')}\n\n"
-        f"📝 <b>Batafsil izoh:</b>\n{karta.get('izoh', '')}\n\n"
-        f"📊 <b>Holati:</b> {karta.get('holat', '🟡 Yangi lid')} <i>(Google Sheetsga yozildi)</i>\n"
-        "💡 <i>Mijoz profiliga o'tish uchun ismini bosing.</i>"
+        f"🏢 <b>Tashkilot / Kasbi:</b> {karta.get('tashkilot', 'Ko\'rsatilmagan')}\n"
+        f"🎯 <b>Murojaat mavzusi:</b> {karta.get('mavzu', 'Umumiy murojaat')}\n"
+        f"{muhimlik_belgi} <b>Muhimlik darajasi:</b> {karta.get('muhimlik', 'Oddiy')}\n\n"
+        f"📝 <b>Suhbat tafsilotlari va xulosa:</b>\n{karta.get('izoh', '')}\n\n"
+        f"📊 <b>Holati:</b> {karta.get('holat', '🟡 Yangi murojaat')} <i>(Google Sheetsga yozildi)</i>\n"
+        "💡 <i>Murojaatchi profiliga o'tish uchun ismini bosing.</i>"
     )
     try:
         await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
@@ -461,18 +428,15 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, karta: dict):
 
 
 async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, karta: dict):
-    """Mijoz qo'shimcha ma'lumot yozganda bot egasiga yangilangan Lid Kartochkasi bildirishnomasi."""
+    """Mijoz qo'shimcha ma'lumot yozganda bot egasiga yangilangan Murojaat Dosyesi bildirishnomasi."""
     username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
     mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{karta.get('ism', mijoz.full_name)}</a>"
-    profil_shisha = f"{karta.get('profil', '')} / {karta.get('shisha', '')}".strip(" /")
     matn = (
-        "🔄 <b>YANGILANGAN LID KARTOCHKASI:</b>\n\n"
-        f"👤 <b>Mijoz:</b> {mijoz_link} ({username})\n"
+        "🔄 <b>YANGILANGAN MUROJAAT DOSYESI:</b>\n\n"
+        f"👤 <b>Murojaatchi:</b> {mijoz_link} ({username})\n"
         f"📞 <b>Telefon:</b> {karta.get('telefon', 'Ko\'rsatilmagan')}\n"
-        f"🪟 <b>Mahsulot:</b> {karta.get('mahsulot', 'AKFA')}\n"
-        f"🧱 <b>Profil & Oyna:</b> {profil_shisha}\n"
-        f"📐 <b>Miqdor:</b> {karta.get('miqdor', '')}\n"
-        f"📍 <b>Manzil:</b> {karta.get('manzil', '')}\n\n"
+        f"🏢 <b>Tashkilot / Kasbi:</b> {karta.get('tashkilot', '')}\n"
+        f"🎯 <b>Mavzu:</b> {karta.get('mavzu', '')}\n\n"
         f"📝 <b>Yangi xulosa:</b>\n{karta.get('izoh', '')}"
     )
     try:
@@ -490,11 +454,11 @@ async def start_komandasi(message: types.Message):
     """Bot egasi /start bosganida status xabari."""
     await message.answer(
         f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
-        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) AKFA mahsulotlari bo'yicha Telegram Business savdo yordamchingizman.\n"
-        "Mijozlarga deraza, eshik, narxlar va sifat bo'yicha mustaqil maslahat beraman, matnli, rasm va <b>ovozli (voice)</b> xabarlarni tushunaman!\n\n"
+        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) Telegram Business shaxsiy AI yordamchingizman.\n"
+        "Siz onlayn bo'lmagan vaqtingizda murojaatchilar bilan muloqot qilaman, har qanday savollariga mos javob beraman, maqsadini aniqlab, sizga to'liq dosye yuboraman!\n\n"
         "Buyruqlar:\n"
-        "• /leads — Oxirgi kelgan buyurtmalar (Lid kartochkalari) ro'yxati\n"
-        "• /export — Barcha buyurtmalarni Excel (CSV) faylda yuklab olish\n"
+        "• /leads — Oxirgi kelgan murojaatlar dosyesi\n"
+        "• /export — Barcha murojaatlarni Excel (CSV) faylda yuklab olish\n"
         "• /stats — Umumiy statistika (Baza bo'yicha)\n"
         "• /resume &lt;chat_id&gt; — Chatda botni qayta faollashtirish\n"
         "• /reset &lt;chat_id&gt; — Chat xotirasini tozalash\n"
@@ -505,25 +469,25 @@ async def start_komandasi(message: types.Message):
 
 @dp.message(Command("leads"))
 async def leads_komandasi(message: types.Message):
-    """Oxirgi kelgan mijozlarni SQLite bazasidan Lid Kartochkasi ko'rinishida ko'rsatish."""
+    """Oxirgi kelgan murojaatlarni SQLite bazasidan ko'rsatish."""
     oxirgi_leadlar = db.get_recent_leads(limit=5)
     if not oxirgi_leadlar:
-        await message.answer("Hozircha yangi murojaatlar (leadlar) mavjud emas.")
+        await message.answer("Hozircha yangi murojaatlar mavjud emas.")
         return
 
-    javob = "📇 <b>Oxirgi 5 ta Lid Kartochkasi:</b>\n\n"
+    javob = "📋 <b>Oxirgi 5 ta Murojaat Dosyesi:</b>\n\n"
     for idx, row in enumerate(oxirgi_leadlar, 1):
         keys = row.keys() if hasattr(row, 'keys') else []
         username_matn = f"@{row['username']}" if row['username'] and not str(row['username']).startswith('@') else (row['username'] or 'yo\'q')
         mijoz_link = f"<a href='tg://user?id={row['telegram_id']}'>{row['full_name']}</a>"
         tel = row['telefon'] if 'telefon' in keys and row['telefon'] else 'Aniqlanmagan'
-        mahsulot = row['mahsulot'] if 'mahsulot' in keys and row['mahsulot'] else 'AKFA'
-        miqdor = row['miqdor'] if 'miqdor' in keys and row['miqdor'] else ''
-        miqdor_matn = f" | {miqdor}" if miqdor else ""
+        mavzu = row['mavzu'] if 'mavzu' in keys and row['mavzu'] else 'Umumiy'
+        tashkilot = row['tashkilot'] if 'tashkilot' in keys and row['tashkilot'] else ''
+        tashkilot_matn = f" ({tashkilot})" if tashkilot else ""
         
         javob += (
             f"<b>{idx}. {mijoz_link}</b> ({username_matn}) — <i>{row['created_at']}</i>\n"
-            f"📞 <code>{tel}</code> | 🪟 {mahsulot}{miqdor_matn}\n"
+            f"📞 <code>{tel}</code> | 🎯 {mavzu}{tashkilot_matn}\n"
             f"📝 {row['xulosa']}\n\n"
         )
 
@@ -533,10 +497,10 @@ async def leads_komandasi(message: types.Message):
 @dp.message(Command("export"))
 @dp.message(Command("excel"))
 async def export_komandasi(message: types.Message):
-    """Leadlar ro'yxatini to'liq Lid Kartochkasi ustunlari bilan Excel/CSV fayl ko'rinishida yuboradi."""
+    """Murojaatlar ro'yxatini to'liq ustunlar bilan Excel/CSV fayl ko'rinishida yuboradi."""
     all_leads = db.get_all_leads()
     if not all_leads:
-        await message.answer("Hozircha saqlangan buyurtmalar (leadlar) mavjud emas.")
+        await message.answer("Hozircha saqlangan murojaatlar mavjud emas.")
         return
 
     # CSV faylni to'liq va yangilangan holda shakllantiramiz
@@ -545,8 +509,8 @@ async def export_komandasi(message: types.Message):
             with open(LEADLAR_FAYLI, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    "ID", "Sana", "Mijoz Ismi", "Telefon", "Telegram", "Telegram ID",
-                    "Mahsulot", "Profil va Oyna", "Miqdori / O'lchami", "Manzil", "Zamer", "Xulosa / Izoh", "Holati"
+                    "ID", "Sana", "Murojaatchi Ismi", "Telefon", "Telegram", "Telegram ID",
+                    "Tashkilot / Kasbi", "Mavzu", "Muhimlik", "Xulosa / Tafsilot", "Holati"
                 ])
                 for r in all_leads:
                     keys = r.keys() if hasattr(r, 'keys') else []
@@ -557,22 +521,20 @@ async def export_komandasi(message: types.Message):
                         r["telefon"] if "telefon" in keys else "",
                         r["username"] if "username" in keys else "",
                         r["telegram_id"] if "telegram_id" in keys else "",
-                        r["mahsulot"] if "mahsulot" in keys else "",
-                        r["profil"] if "profil" in keys else "",
-                        r["miqdor"] if "miqdor" in keys else "",
-                        r["manzil"] if "manzil" in keys else "",
-                        r["zamer"] if "zamer" in keys else "",
+                        r["tashkilot"] if "tashkilot" in keys else "",
+                        r["mavzu"] if "mavzu" in keys else "",
+                        r["muhimlik"] if "muhimlik" in keys else "",
                         r["xulosa"] if "xulosa" in keys else "",
-                        r["holat"] if "holat" in keys else "Yangi lid",
+                        r["holat"] if "holat" in keys else "Yangi murojaat",
                     ])
         except Exception as e:
             logging.error("CSV yozishda xato: %s", e)
 
     try:
-        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"AKFA_Lid_Kartochkalari_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"Zuxriddin_Murojaatlar_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
         await message.answer_document(
             document=fayl,
-            caption="📊 <b>Barcha AKFA Lid Kartochkalari ro'yxati</b>\nUshbu faylni Excel dasturida to'liq jadval ko'rinishida ko'rishingiz mumkin.",
+            caption="📊 <b>Barcha kelgan murojaatlar dosyesi</b>\nUshbu faylni Excel dasturida to'liq jadval ko'rinishida ko'rishingiz mumkin.",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -584,11 +546,11 @@ async def stats_komandasi(message: types.Message):
     """Statistika buyrug'i (SQLite bazasidan)."""
     stats = db.get_stats()
     matn = (
-        "📊 <b>Bot Statistikasi (AKFA Baza)</b>\n\n"
-        f"👥 Jami qabul qilingan leadlar: <b>{stats['total_leads']} ta</b>\n"
+        f"📊 <b>{EGA_ISMI} Shaxsiy Yordamchisi Statistikasi</b>\n\n"
+        f"👥 Jami qabul qilingan murojaatlar: <b>{stats['total_leads']} ta</b>\n"
         f"💬 Faol suhbatlar: <b>{stats['active_chats']} ta</b>\n"
         f"✅ Yakunlangan suhbatlar: <b>{stats['completed_chats']} ta</b>\n\n"
-        f"🧠 Matn modeli: <code>{MODEL}</code>\n"
+        f"🧠 AI modeli: <code>{MODEL}</code>\n"
         f"🎙 Ovoz modeli: <code>{WHISPER_MODEL}</code>"
     )
     await message.answer(matn, parse_mode="HTML")
@@ -622,12 +584,12 @@ async def reset_komandasi(message: types.Message):
 async def help_komandasi(message: types.Message):
     """Yordam bo'limi."""
     await message.answer(
-        "💡 <b>AKFA Savdo Boti Qo'llanmasi:</b>\n\n"
+        f"💡 <b>{EGA_ISMI} Shaxsiy Yordamchisi Qo'llanmasi:</b>\n\n"
         "1. Bot Telegram Business orqali shaxsiy akkauntingizga ulangan bo'lishi kerak.\n"
-        "2. Yangi mijoz yozganda AI AKFA derazalari, eshiklari, narxlari va sifati bo'yicha mustaqil maslahat beradi.\n"
-        "3. Mijoz matn, <b>ovoz (voice)</b>, <b>video-xabar (kruglyash)</b>, <b>rasm (izohi bilan)</b>, <b>kontakt</b> yoki <b>lokatsiya</b> yuborsa ham bot to'liq tushunadi.\n"
-        "4. Mijozning telefon raqami va buyurtma tafsilotlari aniqlangach, sizga bildirishnoma keladi va Excelga yoziladi.\n"
-        "5. Agar siz mijozga o'zingiz yozsangiz, bot 30 daqiqa davomida suhbatga xalaqit bermaydi. Qayta faollashtirish uchun: <code>/resume &lt;chat_id&gt;</code>.",
+        f"2. Siz onlayn bo'lmaganingizda yozgan har qanday odamga yordamchi javob beradi va maqsadini to'liq aniqlaydi.\n"
+        "3. Suhbatdosh matn, <b>ovoz (voice)</b>, <b>video-xabar (kruglyash)</b>, <b>rasm</b> yoki <b>kontakt</b> yuborsa ham bot to'liq tushunadi.\n"
+        "4. Suhbatdoshning kimligi va maqsadi aniqlangach, sizga to'liq dosye yuboriladi va Google Sheets jadvalingizga yoziladi.\n"
+        "5. Agar siz suhbatdoshga o'zingiz yozsangiz, bot 30 daqiqa davomida suhbatga xalaqit bermaydi. Qayta faollashtirish uchun: <code>/resume &lt;chat_id&gt;</code>.",
         parse_mode="HTML"
     )
 
@@ -665,21 +627,21 @@ async def xabar_keldi(message: types.Message):
     if message.text:
         xabar_matni = message.text.strip()
     elif message.contact:
-        # Mijoz Telegram orqali telefon raqamini (kontakt) ulashdi
+        # Murojaatchi Telegram orqali telefon raqamini (kontakt) ulashdi
         tel = message.contact.phone_number
         ism = f"{message.contact.first_name or ''} {message.contact.last_name or ''}".strip()
-        xabar_matni = f"Mening ismim: {ism}, telefon raqamim: {tel}. Bepul o'lchash (zamer) uchun ma'lumot qoldirdim."
+        xabar_matni = f"Mening ismim: {ism}, telefon raqamim: {tel}. {EGA_ISMI} bilan bog'lanish uchun o'z kontakt ma'lumotlarimni qoldirdim."
     elif message.photo:
-        # Mijoz rasm yubordi (masalan rom yoki eshik rasmi)
+        # Murojaatchi rasm yubordi
         caption = message.caption.strip() if message.caption else ""
         if caption:
-            xabar_matni = f"[Mijoz rom/eshik rasmini yubordi va izoh yozdi]: {caption}"
+            xabar_matni = f"[Murojaatchi rasm yubordi va izoh yozdi]: {caption}"
         else:
-            xabar_matni = "Mijoz xona yoki oyna rasmini yubordi. Rasm uchun rahmat aytib, o'lchamlari va qanday mahsulot kerakligini so'ra."
+            xabar_matni = f"Murojaatchi rasm yubordi. Rasm uchun minnatdorchilik bildirib, {EGA_ISMI}ga bu rasm bo'yicha qanday masala yoki taklif borligini so'ra."
     elif message.location:
-        # Mijoz zamer uchun lokatsiya yubordi
+        # Murojaatchi lokatsiya yubordi
         lat, lon = message.location.latitude, message.location.longitude
-        xabar_matni = f"Mijoz zamer uchun manzil lokatsiyasini yubordi (Kenglik: {lat}, Uzunlik: {lon}). Zamer manzili qabul qilinganini ayt."
+        xabar_matni = f"Murojaatchi manzil lokatsiyasini yubordi (Kenglik: {lat}, Uzunlik: {lon}). Lokatsiya qabul qilinganini va {EGA_ISMI}ga yetkazilishini bildir."
     elif message.voice:
         # Telegram ovozli xabarini (voice) Whisper orqali matnga o'giramiz
         xabar_matni = await ovozni_matnga_aylantirish(message.voice.file_id, "voice.ogg")
@@ -734,16 +696,16 @@ async def xabar_keldi(message: types.Message):
             await yubor(message, SALOM_MATNI)
             return
 
-        # Agar mijoz xabarida telefon raqami bo'lsa, zaxira sifatida lead deb belgilaymiz
+        # Agar murojaatchi xabarida telefon raqami bo'lsa, zaxira sifatida lead deb belgilaymiz
         if not tayyor and PHONE_REGEX.search(xabar_matni):
             tayyor = True
             if not xulosa:
-                xulosa = f"Mijoz telefon raqami qoldirdi: {xabar_matni}"
+                xulosa = f"Murojaatchi telefon raqami qoldirdi: {xabar_matni}"
 
         db.add_message(chat_id, "assistant", javob)
         await yubor(message, javob)
 
-        # Agar ma'lumotlar yig'ilgan yoki yangilangan bo'lsa (Lid kartochkasi shakllantiriladi)
+        # Agar ma'lumotlar yig'ilgan yoki yangilangan bo'lsa (Murojaat dosyesi shakllantiriladi)
         if tayyor and xulosa:
             eski_xulosa = db.get_last_lead_summary(chat_id)
             karta = await lid_kartochkasini_shakllantirish(tarix, message.from_user, xulosa)
@@ -766,7 +728,7 @@ async def handle_ping(request):
     """Render yoki Uptime monitoring uchun Health Check javobi."""
     return web.json_response({
         "status": "online",
-        "service": "AKFA Savdo Yordamchisi",
+        "service": f"{EGA_ISMI} Shaxsiy AI Yordamchisi",
         "owner": EGA_ISMI,
         "message": "Bot 24/7 faol ishlamoqda! 🟢"
     })
