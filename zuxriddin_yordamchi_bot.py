@@ -69,35 +69,43 @@ SALOM_MATNI = (
     f"{EGA_ISMI} hozir onlayn emas, biror gapingiz bo'lsa aytsangiz, unga yetkazib qo'yaman."
 )
 
-TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy, aqlli va xushmuomala yordamchisisan. Telegram Business orqali {EGA_ISMI} nomidan murojaatchilar bilan yozishasan.
+TIZIM_KORSATMASI = f"""Sen {EGA_ISMI}ning shaxsiy, o'ta aqlli, madaniyatli va professional AI yordamchisisan.
+Telegram orqali {EGA_ISMI} nomidan murojaatchilar bilan muloqot qilasan.
 
-ASOSIY QOIDALAR:
+SENING ASOSIY MAQSADING:
+1. {EGA_ISMI} hozir onlayn emas. Unga murojaat qilayotgan insonlar bilan xushmuomala suhbatlashib, ularning kimligini (ismi, telefon raqami, tashkiloti yoki kasbi) va nima maqsadda yozganini to'liq aniqlash.
+2. Odamlar har qanday savol bersa ham (biznes, ish, dasturlash, IT, takliflar, hamkorlik, fikr, maslahat, narxlar va h.k.) ularga aqlli, to'g'ri va tushunarli javob berish.
 
-1. BIRINCHI XABARDA JAVOB BERISH:
-   - {EGA_ISMI} hozir onlayn emas.
-   - Birinchi xabarda salomlashganda qisqa, aniq va ortiqcha gaplarsiz shunday degin:
+MUHIM QOIDALAR:
+
+1. BIRINCHI XABAR (1-MULOQOT):
+   - Agar murojaatchi bilan birinchi marta gaplashayotgan bo'lsang, javobingni QAT'IY ravishda quyidagi jumla bilan boshlaysan:
      "Assalomu alaykum! Men {EGA_ISMI}ning yordamchisiman. {EGA_ISMI} hozir onlayn emas, biror gapingiz bo'lsa aytsangiz, unga yetkazib qo'yaman."
-   - Ortiqcha gaplar, "muhim ish bilan band", uzun dostonlar yozish QAT'IYAN MAN ETILADI!
-   - Agar murojaatchi birinchi xabardayoq biror aniq savol bergan bo'lsa, avval yuqoridagi gapni ayt, so'ngra savoliga 1-2 gapda lo'nda javob ber.
+   - Agar murojaatchi birinchi xabaridayoq biror savol bergan bo'lsa, ushbu salomlashish jumlasi ortidan DARHOL uning savoliga aniq va to'g'ri javob ber, so'ngra uning ismi va aloqa ma'lumotlarini so'ra.
+   - Agar murojaatchi shunchaki "Salom" yoki "Assalomu alaykum" degan bo'lsa, faqatgina yuqoridagi salom jumlasi kifoya.
 
-2. JAVOBLARNI CHO'ZMASLIK (LO'NDA VA QISQA BO'L):
-   - Har doim juda qisqa, tabiiy va lo'nda yoz (1-3 gap). Uzun dostonlar, ro'yxatlar, robotcha gaplar yozma!
-   - AGAR SUHBAT ALLAQACHON KETAYOTGAN BO'LSA, QAYTA SALOMLASHMA! To'g'ridan-to'g'ri mavzuga oid javob ber.
+2. IKKINCHI VA KEYINGI XABARLAR (QAYTA SALOMLASHISH TAQIQLANADI):
+   - Suhbat davomida "Assalomu alaykum! Men {EGA_ISMI}ning yordamchisiman..." jumlasi yoki salomlashishni QAYTARA KO'RMA!
+   - Bitta gapni qaytaraverish QAT'IYAN TAQIQLANADI!
+   - To'g'ridan-to'g'ri suhbat mavzusiga o't, savoliga javob ber va muloqotni tabiiy insondek davom ettir.
 
-3. HAR QANDAY SAVOLGA MOS JAVOB BER (FULL AI):
-   - Murojaatchi nima mavzuda (ish, biznes, taklif, savol) so'rasa ham, savoliga mos, to'g'ri va tushunarli javob ber.
-   - Hech qachon "men bilmayman", "{EGA_ISMI} o'zi aytadi" deb javobsiz qoldirma. O'zing qisqa va aniq javob berib, maqsadini bilib ol.
+3. HAR QANDAY SAVOLGA MOS JAVOB BERISH (SAVOLLARNI JAVOBSIZ QOLDIRMA):
+   - Murojaatchi nima mavzuda so'rasa ham, savoliga mos, to'g'ri, professional va aniq javob ber (1-3 lo'nda gapda).
+   - "Men bilmayman", "{EGA_ISMI} kelganda so'rang" deb quruq qaytarma. O'zing yordamchi sifatida savoliga javob berib, maqsadini oydinlashtir.
 
-4. SUHBATDOSHNING MAQSADINI ANIQ BILIB OLISH:
-   - Murojaatchi nima maqsadda yozganini, ismi kimligini, kerak bo'lsa tashkiloti va telefon raqamini bilib olish uchun suhbatni tabiiy davom ettir.
+4. CHEKLOV — MAKTAB SAVOLLARI VA MISOL-MASALALAR TAQIQLANGAN:
+   - Agar murojaatchi maktab darsliklari, uy vazifalari, algebra, geometriya, fizika, kimyo yoki boshqa maktab misol-masalalarini yechib berishni so'rasa, ULARNI YECHMA!
+   - Bunday holatda muloyimlik bilan shunday javob ber:
+     "Kechirasiz, men maktab misol va masalalarini yechmayman. Agar {EGA_ISMI}ga biror ish, hamkorlik yoki boshqa muhim masalangiz bo'lsa, bemalol ayting, unga yetkazib qo'yaman."
 
-5. {EGA_ISMI}GA HISOBOT:
-   - Murojaatchi nima demoqchiligini aytgach va telefon/aloqa qoldirgach, minnatdorchilik bildir va {EGA_ISMI}ga yetkazishingni ayt.
-   - Matn oxirida yangi qatordan yoz:
-     [LEAD: Ismi, Telefoni, Tashkiloti/Kasbi, Murojaat mavzusi va to'liq tafsiloti]
-     (Agar ma'lumot olinmagan bo'lsa, [LEAD: ...] yozma!)
+5. MAQSAD VA ALOQA MA'LUMOTLARINI OLISH:
+   - Murojaatchining ismini, telefon raqamini, qaysi tashkilotdanligini va nima maqsadda yozganini bilib olmaguningcha suhbatni to'xtatma.
+   - Aloqa ma'lumotlari (telefon, ism) va murojaat tafsilotlari to'liq olingach, minnatdorchilik bildir va {EGA_ISMI} tez orada bog'lanishini ayt.
+   - Matn oxiriga yangi qatordan maxsus hisobot tegi qo'sh:
+     [LEAD: Ismi, Telefoni, Tashkiloti/Sohasi, Murojaat mazmuni va to'liq tafsiloti]
+     (Faqatgina ma'lumotlar olinganida yoz, aks holda bu tegni yozma!)
 
-Javoblaringni qisqa, odobli va oddiy samimiy insondek yoz."""
+Javoblaringni qisqa, aqlli, o'zbek tilida ravon va samimiy insondek yoz."""
 
 
 logging.basicConfig(
@@ -214,17 +222,32 @@ async def ovozni_matnga_aylantirish(file_id: str, fayl_nomi: str = "voice.ogg") 
 
 async def ai_javob(tarix: list) -> tuple[str, bool, str]:
     """Groq API orqali tezkor va sifatli javob oladi (model fallback bilan)."""
-    # Salomlashish va qisqa javob berish bo'yicha dinamik eslatma
-    qoshimcha = []
-    if len(tarix) > 1:
+    # Suhbatda yordamchi (assistant) hali biror marta javob berganmi-yo'qmi tekshiramiz
+    assistant_xabarlari = [m for m in tarix if m.get("role") == "assistant"]
+    birinchi_muloqotmi = (len(assistant_xabarlari) == 0)
+
+    if birinchi_muloqotmi:
         qoshimcha = [{
             "role": "system",
-            "content": "ESLATMA: Suhbat allaqachon ketmoqda. Qayta 'Salom' yoki 'Assalomu alaykum' deb salomlashma! Gapni cho'zmasdan, to'g'ridan-to'g'ri juda qisqa (1-3 gapda) javob ber."
+            "content": (
+                f"DIQQAT: Bu suhbatning BIRINCHI XABARI!\n"
+                f"1. Javobingni QAT'IY ravishda quyidagi jumla bilan boshlaysan:\n"
+                f"   \"{SALOM_MATNI}\"\n"
+                f"2. Agar murojaatchi birinchi xabaridayoq biror savol bergan bo'lsa yoki biror mavzuni so'ragan bo'lsa, "
+                f"salomlashish jumlasi ketidan DARHOL uning savoliga ham to'liq, aniq va lo'nda javob ber (maktab misol-masalasi bo'lmasa).\n"
+                f"3. Faqat bitta salom bilan cheklanib qolma agar savol berilgan bo'lsa! Suhbatdoshning ismini va aloqa ma'lumotlarini so'ra."
+            )
         }]
     else:
         qoshimcha = [{
             "role": "system",
-            "content": f"ESLATMA: Bu birinchi xabar. Salomlashganda FAQAT shunday degin: 'Assalomu alaykum! Men {EGA_ISMI}ning yordamchisiman. {EGA_ISMI} hozir onlayn emas, biror gapingiz bo\\'lsa aytsangiz, unga yetkazib qo\\'yaman.' Ortiqcha gap yozma!"
+            "content": (
+                f"DIQQAT: Suhbat ALLAQACHON boshlangan (bu 2- yoki undan keyingi xabar)!\n"
+                f"1. QAYTA SALOMLASHMA! '{SALOM_MATNI}' yoki 'Assalomu alaykum' deb QAYTARA KO'RMA!\n"
+                f"2. Faqat bitta gapni qaytaraverish QAT'IYAN TAQIQLANADI.\n"
+                f"3. Foydalanuvchining savoliga bevosita, aqlli va lo'nda javob ber (maktab misol-masalalaridan tashqari har qanday savolga javob berish shart).\n"
+                f"4. Suhbatdoshning ismi, telefon raqami va murojaat maqsadini bilib olish uchun muloqotni davom ettir."
+            )
         }]
 
     messages = [{"role": "system", "content": TIZIM_KORSATMASI}] + tarix + qoshimcha
@@ -237,12 +260,24 @@ async def ai_javob(tarix: list) -> tuple[str, bool, str]:
             resp = await groq_client.chat.completions.create(
                 model=m,
                 temperature=0.3,
-                max_tokens=250,
+                max_tokens=350,
                 messages=messages,
             )
             matn = resp.choices[0].message.content.strip()
             if matn:
-                return toza_javob_ajratish(matn)
+                javob, tayyor, xulosa = toza_javob_ajratish(matn)
+
+                # Dasturiy kafolat: 1-xabarda salom jumlasi bilan boshlanishi, keyingilarida esa qaytarilmasligi
+                if birinchi_muloqotmi:
+                    if not javob.startswith("Assalomu alaykum! Men"):
+                        javob = f"{SALOM_MATNI}\n\n{javob}".strip()
+                else:
+                    if javob.startswith(SALOM_MATNI):
+                        javob = javob[len(SALOM_MATNI):].strip()
+                    elif javob.startswith(f"Assalomu alaykum! Men {EGA_ISMI}ning yordamchisiman."):
+                        javob = re.sub(rf"^Assalomu alaykum!\s*Men\s*{EGA_ISMI}ning\s*yordamchisiman\.[^.]*\.", "", javob).strip()
+
+                return javob, tayyor, xulosa
         except Exception as e:
             oxirgi_xato = e
             logging.warning("Model '%s' da xato yuz berdi: %s. Zaxira model tekshirilmoqda...", m, e)
@@ -397,8 +432,18 @@ async def leadni_saqla(chat_id: int, mijoz: types.User, karta: dict):
     asyncio.create_task(google_sheetsga_yozish(karta))
 
 
-async def egaga_xabar(ega_id: int, mijoz: types.User, karta: dict):
+async def egaga_xabar(ega_id: int | None, mijoz: types.User, karta: dict):
     """Suhbat yakunlanganda bot egasiga chiroyli Murojaat Dosyesi ko'rinishida hisobot yuboradi."""
+    maqsadli_idlar = set()
+    if ega_id:
+        maqsadli_idlar.add(ega_id)
+    for oid in db.get_owner_ids():
+        maqsadli_idlar.add(oid)
+
+    if not maqsadli_idlar:
+        logging.warning("Ega Telegram ID si topilmadi. Botga /start yuborilganini tekshiring.")
+        return
+
     username_matn = f"@{mijoz.username}" if mijoz.username else "username yo'q"
     mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{karta.get('ism', mijoz.full_name)}</a>"
     
@@ -423,14 +468,24 @@ async def egaga_xabar(ega_id: int, mijoz: types.User, karta: dict):
         f"📊 <b>Holati:</b> {karta.get('holat', '🟡 Yangi murojaat')} <i>(Google Sheetsga yozildi)</i>\n"
         "💡 <i>Murojaatchi profiliga o'tish uchun ismini bosing.</i>"
     )
-    try:
-        await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
-    except Exception as xato:
-        logging.warning("Sizga xabar yuborib bo'lmadi. Bot chatiga kirib /start bosing. (%s)", xato)
+    for target_id in maqsadli_idlar:
+        try:
+            await bot.send_message(chat_id=target_id, text=matn, parse_mode="HTML")
+        except Exception as xato:
+            logging.warning("Ega (%s) ga xabar yuborib bo'lmadi: %s", target_id, xato)
 
 
-async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, karta: dict):
+async def egaga_qoshimcha_xabar(ega_id: int | None, mijoz: types.User, karta: dict):
     """Mijoz qo'shimcha ma'lumot yozganda bot egasiga yangilangan Murojaat Dosyesi bildirishnomasi."""
+    maqsadli_idlar = set()
+    if ega_id:
+        maqsadli_idlar.add(ega_id)
+    for oid in db.get_owner_ids():
+        maqsadli_idlar.add(oid)
+
+    if not maqsadli_idlar:
+        return
+
     username = f"@{mijoz.username}" if mijoz.username else "username yo'q"
     mijoz_link = f"<a href='tg://user?id={mijoz.id}'>{karta.get('ism', mijoz.full_name)}</a>"
     matn = (
@@ -441,10 +496,11 @@ async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, karta: dict):
         f"🎯 <b>Mavzu:</b> {karta.get('mavzu', '')}\n\n"
         f"📝 <b>Yangi xulosa:</b>\n{karta.get('izoh', '')}"
     )
-    try:
-        await bot.send_message(chat_id=ega_id, text=matn, parse_mode="HTML")
-    except Exception as xato:
-        logging.warning("Sizga qo'shimcha xabar yuborib bo'lmadi. (%s)", xato)
+    for target_id in maqsadli_idlar:
+        try:
+            await bot.send_message(chat_id=target_id, text=matn, parse_mode="HTML")
+        except Exception as xato:
+            logging.warning("Ega (%s) ga qo'shimcha xabar yuborib bo'lmadi: %s", target_id, xato)
 
 
 # =====================================================================
@@ -453,10 +509,11 @@ async def egaga_qoshimcha_xabar(ega_id: int, mijoz: types.User, karta: dict):
 
 @dp.message(CommandStart())
 async def start_komandasi(message: types.Message):
-    """Bot egasi /start bosganida status xabari."""
+    """Bot egasi /start bosganida egasini ro'yxatga oladi va status xabari ko'rsatadi."""
+    db.save_owner_id(message.from_user.id)
     await message.answer(
         f"Assalomu alaykum, <b>{message.from_user.full_name}</b>!\n\n"
-        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) Telegram Business shaxsiy AI yordamchingizman.\n"
+        f"🤖 Men sizning (<b>{EGA_ISMI}</b>) Telegram shaxsiy AI yordamchingizman.\n"
         "Siz onlayn bo'lmagan vaqtingizda murojaatchilar bilan muloqot qilaman, har qanday savollariga mos javob beraman, maqsadini aniqlab, sizga to'liq dosye yuboraman!\n\n"
         "Buyruqlar:\n"
         "• /leads — Oxirgi kelgan murojaatlar dosyesi\n"
@@ -607,22 +664,34 @@ async def ulanish_bildirishi(conn: types.BusinessConnection):
     logging.info("Biznes akkaunt ulandi: @%s (faol: %s)", conn.user.username, conn.is_enabled)
 
 
-@dp.business_message()
-async def xabar_keldi(message: types.Message):
-    """Biznes akkauntiga xabar kelganda ishlovchi asosiy funksiya."""
-    ega_id = await ega_id_ol(message.business_connection_id)
+async def javob_yubor(message: types.Message, matn: str, is_business: bool = True):
+    """Biznes yoki oddiy chat orqali mijozga xavfsiz javob yuboradi."""
+    if is_business and message.business_connection_id:
+        await yubor(message, matn)
+    else:
+        try:
+            await message.answer(matn)
+        except Exception as e:
+            logging.error("Xabar yuborishda xatolik: %s", e)
+
+
+async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True):
+    """Kelgan xabarni (matn, ovoz, rasm, kontakt) qayta ishlab, AI orqali javob qaytaradi."""
     chat_id = message.chat.id
+    ega_id = None
 
-    # Agar bot egasi o'zi yozsa, faollik vaqtini saqlaydi va bot javob qaytarmaydi
-    if message.from_user is None or message.from_user.id == ega_id:
-        db.record_owner_activity(chat_id)
-        return
+    if is_business and message.business_connection_id:
+        ega_id = await ega_id_ol(message.business_connection_id)
+        # Agar bot egasi o'zi yozsa, faollik vaqtini saqlaydi va bot javob qaytarmaydi
+        if message.from_user is None or message.from_user.id == ega_id:
+            db.record_owner_activity(chat_id)
+            return
 
-    # Agar bot egasi so'nggi 30 daqiqada ushbu mijoz bilan o'zi gaplashgan bo'lsa,
-    # bot jonli suhbatga xalaqit bermaydi
-    if db.is_owner_recently_active(chat_id, minutes=30):
-        logging.info("Chat %s da bot egasi faol, bot aralashmaydi.", chat_id)
-        return
+        # Agar bot egasi so'nggi 30 daqiqada ushbu mijoz bilan o'zi gaplashgan bo'lsa,
+        # bot jonli suhbatga xalaqit bermaydi
+        if db.is_owner_recently_active(chat_id, minutes=30):
+            logging.info("Chat %s da bot egasi faol, bot aralashmaydi.", chat_id)
+            return
 
     # 1) Xabar turini aniqlash (Matn, Kontakt, Rasm, Lokatsiya, Ovoz, Kruglyash, Audio, Hujjat)
     xabar_matni = ""
@@ -648,25 +717,25 @@ async def xabar_keldi(message: types.Message):
         # Telegram ovozli xabarini (voice) Whisper orqali matnga o'giramiz
         xabar_matni = await ovozni_matnga_aylantirish(message.voice.file_id, "voice.ogg")
         if not xabar_matni:
-            await yubor(message, "Kechirasiz, ovozli xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
+            await javob_yubor(message, "Kechirasiz, ovozli xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.", is_business)
             return
     elif message.video_note:
         # Telegram kruglyash (dumaloq video) ovozini Whisper orqali matnga o'giramiz
         xabar_matni = await ovozni_matnga_aylantirish(message.video_note.file_id, "video_note.mp4")
         if not xabar_matni:
-            await yubor(message, "Kechirasiz, video xabardagi ovozni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
+            await javob_yubor(message, "Kechirasiz, video xabardagi ovozni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.", is_business)
             return
     elif message.audio:
         # Oddiy audio faylni Whisper orqali matnga o'giramiz
         xabar_matni = await ovozni_matnga_aylantirish(message.audio.file_id, "audio.mp3")
         if not xabar_matni:
-            await yubor(message, "Kechirasiz, audio xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.")
+            await javob_yubor(message, "Kechirasiz, audio xabaringizni aniq eshita olmadim. Iltimos, matn ko'rinishida yozing.", is_business)
             return
     elif message.document:
         caption = message.caption.strip() if message.caption else ""
         xabar_matni = f"[Mijoz hujjat/fayl yubordi]: {caption}" if caption else "Mijoz fayl yubordi. Savolingizni matn ko'rinishida yozing."
     else:
-        await yubor(message, "Iltimos, savolingizni matn yoki ovozli xabar ko'rinishida yuboring.")
+        await javob_yubor(message, "Iltimos, savolingizni matn yoki ovozli xabar ko'rinishida yuboring.", is_business)
         return
 
     # 2) Poyga holatini (race condition) oldini olish uchun chat lock
@@ -681,7 +750,10 @@ async def xabar_keldi(message: types.Message):
 
         # Mijozga 'yozmoqda...' (typing) statusini darhol ko'rsatish
         try:
-            await bot.send_chat_action(chat_id=message.chat.id, action="typing", business_connection_id=message.business_connection_id)
+            if is_business and message.business_connection_id:
+                await bot.send_chat_action(chat_id=message.chat.id, action="typing", business_connection_id=message.business_connection_id)
+            else:
+                await bot.send_chat_action(chat_id=message.chat.id, action="typing")
         except Exception:
             pass
 
@@ -695,7 +767,7 @@ async def xabar_keldi(message: types.Message):
         except Exception as xato:
             logging.error("Groq xatosi: %s", xato)
             db.delete_last_message(chat_id)
-            await yubor(message, SALOM_MATNI)
+            await javob_yubor(message, SALOM_MATNI, is_business)
             return
 
         # Agar murojaatchi xabarida telefon raqami bo'lsa, zaxira sifatida lead deb belgilaymiz
@@ -705,7 +777,7 @@ async def xabar_keldi(message: types.Message):
                 xulosa = f"Murojaatchi telefon raqami qoldirdi: {xabar_matni}"
 
         db.add_message(chat_id, "assistant", javob)
-        await yubor(message, javob)
+        await javob_yubor(message, javob, is_business)
 
         # Agar ma'lumotlar yig'ilgan yoki yangilangan bo'lsa (Murojaat dosyesi shakllantiriladi)
         if tayyor and xulosa:
@@ -720,6 +792,20 @@ async def xabar_keldi(message: types.Message):
                 # Yangi yoki qo'shimcha ma'lumot kiritildi
                 await leadni_saqla(chat_id, message.from_user, karta)
                 await egaga_qoshimcha_xabar(ega_id, message.from_user, karta)
+
+
+@dp.business_message()
+async def xabar_keldi_biznes(message: types.Message):
+    """Biznes akkauntiga xabar kelganda ishlovchi asosiy funksiya."""
+    await xabarni_qayta_ishlash(message, is_business=True)
+
+
+@dp.message(F.chat.type == "private")
+async def xabar_keldi_shaxsiy(message: types.Message):
+    """Foydalanuvchi bot chatiga to'g'ridan-to'g'ri (private) yozganda ishlovchi funksiya."""
+    if message.text and message.text.startswith("/"):
+        return
+    await xabarni_qayta_ishlash(message, is_business=False)
 
 
 # =====================================================================
@@ -758,7 +844,7 @@ async def main():
     # 1) Render Web Service uchun port ochish va health-check serverni yoqish
     runner = await start_web_server()
 
-    logging.info("AKFA Savdo Boti muvaffaqiyatli ishga tushdi! To'xtatish uchun: Ctrl + C")
+    logging.info("%s Shaxsiy AI Yordamchisi muvaffaqiyatli ishga tushdi! To'xtatish uchun: Ctrl + C", EGA_ISMI)
 
     try:
         await dp.start_polling(

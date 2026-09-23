@@ -343,3 +343,21 @@ def get_stats() -> Dict[str, int]:
             "active_chats": active_chats,
             "completed_chats": completed_chats,
         }
+
+
+def save_owner_id(user_id: int):
+    """Bot egasining Telegram ID sini bazada saqlaydi."""
+    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
+        cursor.execute("INSERT OR REPLACE INTO owners (user_id, updated_at) VALUES (?, ?);", (user_id, vaqt))
+
+
+def get_owner_ids() -> List[int]:
+    """Barcha ro'yxatdan o'tgan bot egalarining ID larini qaytaradi."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
+        cursor.execute("SELECT user_id FROM owners;")
+        return [row["user_id"] for row in cursor.fetchall()]
