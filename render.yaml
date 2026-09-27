@@ -5,14 +5,21 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python zuxriddin_yordamchi_bot.py
+    healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.1
       - key: BOT_TOKEN
         sync: false
       - key: GROQ_API_KEY
+        sync: false
+      - key: OWNER_ID
         sync: false
       - key: EGA_ISMI
         value: Zuxriddin
       - key: MODEL
         value: qwen/qwen3.8-27b
+      - key: FALLBACK_MODELS
+        value: openai/gpt-oss-120b,openai/gpt-oss-20b
       - key: GOOGLE_SHEET_WEBHOOK_URL
         sync: false

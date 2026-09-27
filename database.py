@@ -1,18 +1,24 @@
 """
 ZUXRIDDIN YORDAMCHISI - Ma'lumotlar bazasi moduli (SQLite)
-Suhbatlar tarixi, mijozlar holati va leadlarni doimiy saqlash uchun.
+Suhbatlar tarixi, mijozlar holati va murojaatlarni (dosyelarni) doimiy saqlash uchun.
 Ulanishlar sizib ketishini (connection leak) oldini oluvchi contextmanager,
 WAL rejim (yuqori tezlik) va indekslar bilan jihozlangan.
+
+Baza fayli manzili DB_PATH muhit o'zgaruvchisi orqali o'zgartirilishi mumkin
+(masalan, doimiy disk ulangan serverlarda).
 """
 
 import sqlite3
 import os
 import contextlib
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FAYLI = os.path.join(BASE_DIR, "yordamchi_bot.db")
+DB_FAYLI = os.getenv("DB_PATH") or os.path.join(BASE_DIR, "yordamchi_bot.db")
+
+# Eski (AKFA savdo boti davridan qolgan) va endi ishlatilmaydigan ustunlar
+ESKI_USTUNLAR = ["mahsulot", "profil", "miqdor", "manzil", "zamer"]
 
 
 @contextlib.contextmanager
@@ -30,15 +36,23 @@ def get_db():
         conn.close()
 
 
+def _hozir(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    return datetime.now().strftime(fmt)
+
+
 def init_db():
     """Jadvallarni va unumdorlik indekslarini yaratish."""
+    papka = os.path.dirname(DB_FAYLI)
+    if papka:
+        os.makedirs(papka, exist_ok=True)
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
+
         # 1) Tezlikni oshirish va bloklanishlarni oldini olish uchun WAL rejimi
         cursor.execute("PRAGMA journal_mode = WAL;")
         cursor.execute("PRAGMA synchronous = NORMAL;")
-        
+
         # 2) Chatlar holati jadvali
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chats (
@@ -50,13 +64,13 @@ def init_db():
                 updated_at TEXT
             )
         """)
-        
+
         # Eski bazalar uchun owner_last_active ustunini tekshirib qo'shish
         try:
             cursor.execute("ALTER TABLE chats ADD COLUMN owner_last_active TEXT;")
-        except Exception:
+        except sqlite3.OperationalError:
             pass
-        
+
         # 3) Suhbat xabarlari tarixi jadvali
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -68,8 +82,8 @@ def init_db():
                 FOREIGN KEY (chat_id) REFERENCES chats (chat_id)
             )
         """)
-        
-        # 4) Murojaatlar (dosyelar / leadlar) jadvali
+
+        # 4) Murojaatlar (dosyelar / leadlar) jadvali - har bir chat uchun bitta qator
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,36 +96,37 @@ def init_db():
                 tashkilot TEXT,
                 mavzu TEXT,
                 muhimlik TEXT,
-                mahsulot TEXT,
-                profil TEXT,
-                miqdor TEXT,
-                manzil TEXT,
-                zamer TEXT,
                 holat TEXT DEFAULT 'Yangi',
-                created_at TEXT
+                created_at TEXT,
+                updated_at TEXT
             )
         """)
-        
+
         # Yangi ustunlar mavjud bo'lmasa, avtomatik qo'shish (migratsiya)
-        yangi_ustunlar = [
+        for ustun_nomi, ustun_turi in [
             ("telefon", "TEXT"),
             ("tashkilot", "TEXT"),
             ("mavzu", "TEXT"),
             ("muhimlik", "TEXT"),
-            ("mahsulot", "TEXT"),
-            ("profil", "TEXT"),
-            ("miqdor", "TEXT"),
-            ("manzil", "TEXT"),
-            ("zamer", "TEXT"),
             ("holat", "TEXT DEFAULT 'Yangi'"),
-        ]
-        for ustun_nomi, ustun_turi in yangi_ustunlar:
+            ("updated_at", "TEXT"),
+        ]:
             try:
                 cursor.execute(f"ALTER TABLE leads ADD COLUMN {ustun_nomi} {ustun_turi};")
-            except Exception:
+            except sqlite3.OperationalError:
                 pass
-        
-        # 5) So'rovlarni tezlashtiruvchi indekslar
+
+        # Eski, ishlatilmaydigan ustunlarni olib tashlash (SQLite >= 3.35)
+        for ustun_nomi in ESKI_USTUNLAR:
+            try:
+                cursor.execute(f"ALTER TABLE leads DROP COLUMN {ustun_nomi};")
+            except sqlite3.OperationalError:
+                pass
+
+        # 5) Bot egalari jadvali
+        cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
+
+        # 6) So'rovlarni tezlashtiruvchi indekslar
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages (chat_id, id DESC);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_chat_id ON leads (chat_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chats_completed ON chats (is_completed);")
@@ -123,11 +138,11 @@ def get_chat_history(chat_id: int, limit: int = 12) -> List[Dict[str, str]]:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT role, content FROM (
-                SELECT id, role, content FROM messages 
-                WHERE chat_id = ? 
-                  AND length(content) > 3 
+                SELECT id, role, content FROM messages
+                WHERE chat_id = ?
+                  AND length(content) > 3
                   AND content NOT IN ('AK', 'Salom! Xush')
-                ORDER BY id DESC 
+                ORDER BY id DESC
                 LIMIT ?
             ) ORDER BY id ASC
         """, (chat_id, limit))
@@ -137,7 +152,7 @@ def get_chat_history(chat_id: int, limit: int = 12) -> List[Dict[str, str]]:
 
 def add_message(chat_id: int, role: str, content: str):
     """Suhbatga yangi xabar qo'shadi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    vaqt = _hozir()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -145,7 +160,7 @@ def add_message(chat_id: int, role: str, content: str):
             VALUES (?, 0, ?, ?)
             ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?
         """, (chat_id, vaqt, vaqt, vaqt))
-        
+
         cursor.execute("""
             INSERT INTO messages (chat_id, role, content, created_at)
             VALUES (?, ?, ?, ?)
@@ -157,14 +172,14 @@ def delete_last_message(chat_id: int):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            DELETE FROM messages 
+            DELETE FROM messages
             WHERE id = (SELECT id FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1)
         """, (chat_id,))
 
 
 def clear_chat_history(chat_id: int):
     """Chat xabarlar tarixini tozalaydi va holatni faollashtiradi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    vaqt = _hozir()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
@@ -178,64 +193,44 @@ def get_last_message_time(chat_id: int) -> Optional[datetime]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT created_at FROM messages 
-            WHERE chat_id = ? 
+            SELECT created_at FROM messages
+            WHERE chat_id = ?
             ORDER BY id DESC LIMIT 1
         """, (chat_id,))
         row = cursor.fetchone()
         if row and row["created_at"]:
             try:
                 return datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
-            except Exception:
+            except ValueError:
                 return None
         return None
 
 
 def get_last_lead_summary(chat_id: int) -> Optional[str]:
-    """Chat bo'yicha oxirgi saqlangan lead xulosasini qaytaradi."""
+    """Chat bo'yicha oxirgi saqlangan murojaat xulosasini qaytaradi."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT xulosa FROM leads 
-            WHERE chat_id = ? 
+            SELECT xulosa FROM leads
+            WHERE chat_id = ?
             ORDER BY id DESC LIMIT 1
         """, (chat_id,))
         row = cursor.fetchone()
         return row["xulosa"] if row else None
 
 
-def is_chat_completed(chat_id: int) -> bool:
-    """Chatdagi suhbat yakunlangan yoki yo'qligini tekshiradi."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT is_completed FROM chats WHERE chat_id = ?", (chat_id,))
-        row = cursor.fetchone()
-        return bool(row["is_completed"]) if row else False
-
-
 def mark_chat_completed(chat_id: int):
-    """Chatni yakunlangan deb belgilaydi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Chatda murojaat dosyesi shakllanganini belgilaydi (statistika uchun)."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE chats SET is_completed = 1, updated_at = ? WHERE chat_id = ?
-        """, (vaqt, chat_id))
-
-
-def reset_chat(chat_id: int):
-    """Chatni qayta faollashtiradi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE chats SET is_completed = 0, owner_last_active = NULL, updated_at = ? WHERE chat_id = ?
-        """, (vaqt, chat_id))
+        """, (_hozir(), chat_id))
 
 
 def record_owner_activity(chat_id: int):
     """Bot egasi mijoz bilan o'zi yozishganda vaqtini saqlaydi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    vaqt = _hozir()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -255,7 +250,7 @@ def is_owner_recently_active(chat_id: int, minutes: int = 30) -> bool:
             try:
                 last_time = datetime.strptime(row["owner_last_active"], "%Y-%m-%d %H:%M:%S")
                 return (datetime.now() - last_time).total_seconds() < (minutes * 60)
-            except Exception:
+            except ValueError:
                 return False
         return False
 
@@ -267,7 +262,7 @@ def clear_owner_activity(chat_id: int):
         cursor.execute("UPDATE chats SET owner_last_active = NULL WHERE chat_id = ?", (chat_id,))
 
 
-def save_lead(
+def upsert_lead(
     chat_id: int,
     full_name: str,
     username: str,
@@ -277,39 +272,54 @@ def save_lead(
     tashkilot: str = "",
     mavzu: str = "",
     muhimlik: str = "Oddiy",
-    mahsulot: str = "",
-    profil: str = "",
-    miqdor: str = "",
-    manzil: str = "",
-    zamer: str = "",
     holat: str = "🟡 Yangi murojaat",
-):
-    """Yangi murojaat dosyesini SQLite bazasiga saqlaydi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M")
+) -> bool:
+    """
+    Murojaat dosyesini saqlaydi. Chat uchun dosye allaqachon mavjud bo'lsa,
+    yangi qator qo'shmasdan mavjudini yangilaydi.
+    Qaytaradi: True - yangi dosye yaratildi, False - mavjudi yangilandi.
+    """
+    vaqt = _hozir("%Y-%m-%d %H:%M")
     with get_db() as conn:
         cursor = conn.cursor()
+        cursor.execute("SELECT id FROM leads WHERE chat_id = ? ORDER BY id DESC LIMIT 1", (chat_id,))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute("""
+                UPDATE leads SET
+                    full_name = ?, username = ?, telegram_id = ?, xulosa = ?,
+                    telefon = ?, tashkilot = ?, mavzu = ?, muhimlik = ?, holat = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                full_name, username, telegram_id, xulosa,
+                telefon, tashkilot, mavzu, muhimlik, holat, vaqt, row["id"]
+            ))
+            return False
+
         cursor.execute("""
             INSERT INTO leads (
                 chat_id, full_name, username, telegram_id, xulosa,
-                telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
+                telefon, tashkilot, mavzu, muhimlik, holat, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             chat_id, full_name, username, telegram_id, xulosa,
-            telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, vaqt
+            telefon, tashkilot, mavzu, muhimlik, holat, vaqt, vaqt
         ))
+        return True
+
+
+_LEAD_USTUNLARI = (
+    "id, full_name, username, telegram_id, xulosa, telefon, tashkilot, "
+    "mavzu, muhimlik, holat, created_at, updated_at"
+)
 
 
 def get_recent_leads(limit: int = 5) -> List[sqlite3.Row]:
     """Oxirgi kelgan murojaatlar ro'yxatini qaytaradi."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, full_name, username, telegram_id, xulosa, telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
-            FROM leads
-            ORDER BY id DESC
-            LIMIT ?
-        """, (limit,))
+        cursor.execute(f"SELECT {_LEAD_USTUNLARI} FROM leads ORDER BY id DESC LIMIT ?", (limit,))
         return cursor.fetchall()
 
 
@@ -317,11 +327,7 @@ def get_all_leads() -> List[sqlite3.Row]:
     """Barcha murojaatlar ro'yxatini eksport uchun qaytaradi."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, full_name, username, telegram_id, xulosa, telefon, tashkilot, mavzu, muhimlik, mahsulot, profil, miqdor, manzil, zamer, holat, created_at
-            FROM leads
-            ORDER BY id DESC
-        """)
+        cursor.execute(f"SELECT {_LEAD_USTUNLARI} FROM leads ORDER BY id DESC")
         return cursor.fetchall()
 
 
@@ -331,13 +337,13 @@ def get_stats() -> Dict[str, int]:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM leads")
         total_leads = cursor.fetchone()[0]
-        
+
         cursor.execute("SELECT COUNT(*) FROM chats WHERE is_completed = 0")
         active_chats = cursor.fetchone()[0]
-        
+
         cursor.execute("SELECT COUNT(*) FROM chats WHERE is_completed = 1")
         completed_chats = cursor.fetchone()[0]
-        
+
         return {
             "total_leads": total_leads,
             "active_chats": active_chats,
@@ -347,17 +353,14 @@ def get_stats() -> Dict[str, int]:
 
 def save_owner_id(user_id: int):
     """Bot egasining Telegram ID sini bazada saqlaydi."""
-    vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
-        cursor.execute("INSERT OR REPLACE INTO owners (user_id, updated_at) VALUES (?, ?);", (user_id, vaqt))
+        cursor.execute("INSERT OR REPLACE INTO owners (user_id, updated_at) VALUES (?, ?);", (user_id, _hozir()))
 
 
 def get_owner_ids() -> List[int]:
     """Barcha ro'yxatdan o'tgan bot egalarining ID larini qaytaradi."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
         cursor.execute("SELECT user_id FROM owners;")
         return [row["user_id"] for row in cursor.fetchall()]
