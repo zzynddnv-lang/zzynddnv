@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 > nul
-title Zuxriddin Yordamchisi - Telegram Business Bot
+title UMATIC Savdo Boti
 echo =======================================================
-echo   ZUXRIDDIN YORDAMCHISI - TELEGRAM BUSINESS BOT
+echo   UMATIC SAVDO BOTI - TELEGRAM
 echo =======================================================
 echo.
 echo Bot ishga tushirilmoqda...

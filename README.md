@@ -1,107 +1,135 @@
-# 🤖 Zuxriddinning Shaxsiy AI Yordamchisi (Executive Personal Assistant)
+# 🤖 UMATIC savdo menejeri — Telegram AI sotuv boti
 
-Ushbu bot Telegram Business hisobingizga kelgan barcha matnli, **ovozli (voice)**, **video (kruglyash)** va rasm xabarlariga sun'iy intellekt (**Groq Qwen 27B & Whisper Turbo**) orqali avtomatik javob beradi. Zuxriddin onlayn bo'lmaganda suhbatdoshni samimiy kutib oladi, har qanday savoliga javob beradi, uning kimligi va maqsadini to'liq aniqlab, Zuxriddinga dosye yuboradi hamda Google Sheets jadvaliga sinxronizatsiya qiladi.
+Bot Telegram'da (Telegram Business akkaunt yoki botning o'zi orqali) yozgan mijozlar bilan **elektr dvigatellar bo'yicha savdo menejeri** kabi ishlaydi:
+
+- elektr dvigatellar haqida ma'lumot beradi, mijoz ehtiyojini savollar bilan aniqlaydi;
+- sovuq mijozni qizdiradi, e'tirozlarga javob beradi, sotuvga olib boradi;
+- mijoz qaysi tilda yozsa (o'zbek lotin, o'zbek kirill, rus) — o'sha tilda javob beradi;
+- **narx aytmaydi**: pozitsiya va miqdor aniq bo'lgach, mijozga UMATIC shablonidagi **narxsiz tijorat taklifini (PDF)** yuboradi, nusxasi menejerga keladi — narxni menejer bildiradi;
+- (ixtiyoriy, `NARX_OMBORDAN=1`) ombor mas'uli Telegram'da narx kiritadi va bot narxli taklifni o'zi hisoblab yuboradi;
+- mijoz haqidagi barcha ma'lumotni **CRM** ga yig'adi (SQLite + CSV + Google Sheets) va menejerga bildirishnoma yuboradi.
 
 ---
 
-## 📁 Papka tuzilmasi
+## 🔄 Sotuv jarayoni (standart: narxsiz, `NARX_OMBORDAN=0`)
 
 ```text
-ai agent/
-│
-├── zuxriddin_yordamchi_bot.py   # Botning asosiy dastur kodi
-├── database.py                  # SQLite ma'lumotlar bazasi moduli
-├── google_apps_script.gs        # Google Sheets webhook kodi (Apps Script)
-├── tests/                       # Avtomatik testlar
-├── yordamchi_bot.db             # Doimiy SQLite bazasi (avtomatik yaratiladi)
-├── leadlar.csv                  # Murojaatlar zaxirasi (Excel, avtomatik yaratiladi)
-├── .env                         # Maxfiy sozlamalar (gitga yuklanmaydi)
-├── .env.example                 # Sozlamalar namunasi
-├── requirements.txt             # Kerakli Python kutubxonalari
-├── render.yaml / Procfile       # Render.com serveriga joylash sozlamalari
-├── run.bat                      # Windows uchun tezkor ishga tushirish
-└── github_ga_yuklash.bat        # GitHub'ga yuklash (git push)
+Mijoz yozadi
+   ↓
+AI: salom → ehtiyoj → kVt, ob/min, miqdor → ism, kompaniya, telefon           (CRM: 🆕 → 🔍)
+   ↓  pozitsiya va miqdor aniq
+Mijozga: 📄 UMATIC_Tijorat_taklifi_UM-00012.pdf (UZ yoki RU, narx ustunida "So'rov bo'yicha")
+Menejerga: PDF nusxasi + mijoz kartochkasi → "Mijozga narxni bildiring"      (CRM: 📄)
 ```
 
+PDF sizning `UMATIC_Tijorat_taklifi_UZ.docx` / `..._RU_финал.docx` shabloningiz asosida chiziladi: logotip, rekvizitlar, ranglar, jadval, Yusufboyev Begzod imzosi. Kafolat, yetkazib berish, to'lov sharti va menejer qatori hozircha yo'q. O'zbek (lotin va kirill) mijozga — UZ, rus mijozga — RU shablon.
+
+## 🔄 Ombor rejimi (`NARX_OMBORDAN=1`)
+
+```text
+Mijoz yozadi
+   ↓
+AI: salom → ehtiyoj → texnik parametrlar → miqdor → ism, kompaniya, telefon      (CRM: 🆕 → 🔍)
+   ↓  pozitsiya va miqdor aniq
+Ombor chatiga: 🆕 NARX SO'ROVI #12  [💰 Narx kiritish] [❌ Omborda yo'q]           (CRM: 💰)
+   ↓  ombor mas'uli narx va qoldiqni yozadi
+Bot hisoblab ko'rsatadi: "mijozga aynan shunday yuboriladi"  [✅ Mijozga yuborish] [✏️ Qayta]
+   ↓  tasdiqlangach
+Mijozga: 📄 TIJORAT TAKLIFI №12 (jami, to'lov sharti, muddat) — mijoz tilida    (CRM: 📄)
+   ↓  mijoz rozi bo'lsa
+Menejerga: 🎉 MIJOZ BUYURTMANI TASDIQLADI → schyot chiqarish                     (CRM: ✅)
+```
+
+**To'lov sharti** (sozlamalardan, dastur hisoblaydi):
+- 100 mln so'mgacha — 100% oldindan to'lov;
+- 100 mln so'mdan oshsa — 50% oldindan, qolgan 50% tovarni ombordan olib chiqishdan oldin.
+
+**Menejerga bildirishnomalar:** yangi mijoz · menejer aralashuvi kerak (chegirma, shikoyat, qo'ng'iroq so'rovi) · buyurtma tasdiqlandi · omborda yo'q · taklifga 6 soat javob bo'lmadi · AI ishlamay qoldi.
+**Omborga eslatma:** narx so'roviga 30 daqiqa javob berilmasa.
+
 ---
 
-## 🌟 Imkoniyatlar
+## 🧠 Botni o'qitish (bilimlar bazasi)
 
-1. **Telegram Business bilan to'liq integratsiya:** shaxsiy akkauntingizga kelgan xabarlarga avtomatik javob beradi. Siz o'zingiz yozsangiz, bot 30 daqiqa aralashmaydi.
-2. **🎙 Ovoz, kruglyash va audio:** Groq Whisper orqali matnga aylantiriladi. Rasm izohi, kontakt, lokatsiya va hujjatlar ham qabul qilinadi.
-3. **📋 Murojaat dosyesi:** ism, telefon, tashkilot, mavzu va muhimlik AI orqali aniqlanadi va sizga Telegram'da yuboriladi. Har bir murojaatchi uchun **bitta** dosye saqlanadi — qo'shimcha ma'lumot kelsa, mavjudi yangilanadi (dublikat yo'q).
-4. **💾 Saqlash:** SQLite baza + `leadlar.csv` zaxirasi + Google Sheets (ixtiyoriy).
-5. **🔒 Xavfsizlik:** admin buyruqlari va dosyelar faqat `OWNER_ID` ga (va Business ulangan akkaunt egasiga) ochiq. Begona foydalanuvchi `/start` bosib ega bo'lib ololmaydi.
-6. **🔁 Model zaxirasi:** asosiy model ishlamasa, `FALLBACK_MODELS` dagi modellar ishlatiladi.
-7. **👑 Bot egasi uchun buyruqlar:**
-   - `/leads` — oxirgi 5 ta murojaat dosyesi
-   - `/export` — barcha murojaatlarni Excel (CSV) faylda yuklab olish
-   - `/stats` — statistika, faol model va Google Sheets holati
-   - `/resume <chat_id>` — siz yozgan chatda botni darhol qayta yoqish
-   - `/reset <chat_id>` — chat xotirasini tozalash (sinov uchun)
-   - `/help` — qo'llanma
+Bot faqat `bilimlar/` papkasidagi fayllarda yozilgan faktlarga tayanadi:
+
+| Fayl | Nima yoziladi |
+|---|---|
+| `bilimlar/01_kompaniya.md` | Kompaniya haqida: kimsiz, afzalliklar (kafolat, yetkazib berish — aniq bo'lganda) |
+| `bilimlar/02_mahsulotlar.md` | Elektr dvigatellar: umumiy ma'lumot va mijozdan qaysi parametrlarni so'rash kerak (brend/seriyalarni shu yerga qo'shing) |
+| `bilimlar/03_sotuv_qoidalari.md` | Muloqot uslubi, sotuv bosqichlari, e'tirozlarga javoblar, taqiqlar |
+| `bilimlar/04_katalog.md` | umatic.uz dagi 40 ta dvigatel modeli (model, kVt, ob/min, V, IP) |
+| `bilimlar/tanishtiruv/uz_latn.txt`, `uz_cyrl.txt`, `ru.txt` | Mijozning **birinchi xabariga** avtomatik yuboriladigan taqdimot: kompaniya, 4 tur dvigatel, afzalliklar, chaqiriq. AI ga bog'liq emas — har doim to'liq chiqadi |
+
+Qoidalar:
+- Faqat **aniq va tasdiqlangan** ma'lumot yozing — bot har bir gapni mijozga aytishi mumkin.
+- **Narx va qoldiqni yozmang** — ularni har safar ombor tasdiqlaydi.
+- `<!-- ... -->` ichidagi matn botga ko'rinmaydi (o'zingiz uchun eslatma).
+- Fayllar qisqa bo'lsin (jami ~12 000 belgigacha): har bir xabarda AI ga butun bilim yuboriladi.
+- O'zgartirgach GitHub'ga yuklang — Render qayta ishga tushganda bot yangi bilimlarni oladi. Tekshirish: `/bilim`.
 
 ---
 
-## ⚙️ O'rnatish va Sozlash
+## ⚙️ O'rnatish
 
-### 1. Kutubxonalarni o'rnatish
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. `.env` faylini to'ldirish
-`.env.example` dan nusxa olib `.env` yarating va to'ldiring:
-```env
-BOT_TOKEN=sizning_bot_tokeningiz
-GROQ_API_KEY=sizning_groq_api_kalitingiz
-OWNER_ID=sizning_telegram_id_raqamingiz
-EGA_ISMI=Zuxriddin
-MODEL=qwen/qwen3.8-27b
-FALLBACK_MODELS=openai/gpt-oss-120b,openai/gpt-oss-20b
-GOOGLE_SHEET_WEBHOOK_URL=
-```
+`.env.example` dan nusxa olib `.env` yarating. Asosiy sozlamalar:
 
-> **OWNER_ID ni qanday bilish mumkin?** Botga `/start` yuboring — javobda Telegram ID raqamingiz ko'rsatiladi.
-> `OWNER_ID` yozilmagan bo'lsa, faqat **birinchi** `/start` bosgan foydalanuvchi va Business ulangan akkaunt ega hisoblanadi.
+| O'zgaruvchi | Tavsif |
+|---|---|
+| `BOT_TOKEN` | @BotFather dan olingan token |
+| `GROQ_API_KEY` | https://console.groq.com/keys |
+| `OWNER_ID` | Egalar/menejerlar Telegram ID si (botga `/start` yuborsangiz ko'rsatiladi) |
+| `NARX_OMBORDAN` | `0` — narxsiz PDF taklif (standart); `1` — ombor narx kiritadi |
+| `SKLAD_CHAT_ID` | Faqat `NARX_OMBORDAN=1` da: ombor mas'uli yoki ombor guruhi chat ID si (guruhda `/chatid`) |
+| `KOMPANIYA_NOMI` | `UMATIC` |
+| `KATTA_BUYURTMA_CHEGARASI`, `OLDINDAN_TOLOV_FOIZI` | Faqat `NARX_OMBORDAN=1` da, to'lov sharti: `100000000`, `50` |
+| `NARX_IZOHI` | Faqat `NARX_OMBORDAN=1` da: masalan `QQS bilan` |
+| `MODEL`, `FALLBACK_MODELS` | `openai/gpt-oss-120b`; zaxira: `qwen/qwen3.8-27b` (`gpt-oss-20b` o'zbek tilida sifatsiz — tavsiya etilmaydi) |
+| `GOOGLE_SHEET_WEBHOOK_URL` | Google Sheets CRM (pastga qarang) |
 
-### 3. Google Sheets (ixtiyoriy)
-1. Google Sheets jadvalini oching → **Extensions → Apps Script**.
-2. `google_apps_script.gs` kodini joylashtiring va saqlang.
-3. **Deploy → New deployment → Web app**: *Execute as: Me*, *Who has access: **Anyone***.
-4. Berilgan `.../exec` havolasini `GOOGLE_SHEET_WEBHOOK_URL` ga yozing.
+### Ombor guruhini sozlash (faqat `NARX_OMBORDAN=1`)
+1. Ombor mas'uli(lari) bilan Telegram guruh oching va botni guruhga qo'shing.
+2. Guruhda `/chatid` yuboring (buni `OWNER_ID` dagi odam yuborishi kerak) — chiqqan raqamni `SKLAD_CHAT_ID` ga yozing.
+3. Guruh a'zolari narx so'rovlaridagi tugmalarni bosa oladi va narxni **bot xabariga javob (reply)** qilib yozadi:
+   ```text
+   12 500 000 ; 3      ← 1 dona narxi ; omborda nechta bor
+   4.2 mln             ← hammasi bor bo'lsa sonini yozmasa ham bo'ladi
+   yo'q                ← bu pozitsiya omborda yo'q
+   izoh: 2 kunda yetkaziladi   ← ixtiyoriy, mijozga ko'rinadi
+   ```
+   Narx va sonni albatta `;` bilan ajrating (`12500000 100` kabi noaniq yozuv qabul qilinmaydi).
 
-Ulanish holatini `/stats` buyrug'i va har bir dosye ostidagi belgi (✅ / ⚠️) ko'rsatadi.
+### Google Sheets CRM
+1. Google Sheets → **Extensions → Apps Script**, `google_apps_script.gs` kodini joylashtiring.
+2. **Deploy → New deployment → Web app**: *Execute as: Me*, *Who has access: **Anyone***.
+3. `.../exec` havolasini `GOOGLE_SHEET_WEBHOOK_URL` ga yozing. Har bir mijoz — bitta qator (yangilanib boradi).
 
 ---
 
 ## 🚀 Ishga tushirish
 
-1. **Eng oson usul:** **`run.bat`** faylini ikki marta bosing.
-2. **Terminal orqali:**
-   ```bash
-   python zuxriddin_yordamchi_bot.py
-   ```
-
-### Testlar
+```bash
+python zuxriddin_yordamchi_bot.py
+```
+yoki `run.bat`. Testlar:
 ```bash
 python -m unittest discover -s tests -v
 ```
 
----
+### Buyruqlar (faqat egalar uchun)
+`/leads` · `/sorovlar` · `/export` · `/stats` · `/bilim` · `/chatid` · `/resume <chat_id>` · `/reset <chat_id>` · `/help`
 
-## ☁️ Render.com'ga joylash (Free)
-
-`render.yaml` tayyor. Render panelidagi **Environment** bo'limiga `BOT_TOKEN`, `GROQ_API_KEY`, `OWNER_ID` va (ixtiyoriy) `GOOGLE_SHEET_WEBHOOK_URL` ni kiriting.
-
-**Free tarif cheklovlari:**
-- **Uxlab qolish:** Render Free 15 daqiqa so'rov kelmasa xizmatni to'xtatadi. Bot buning oldini olish uchun har 10 daqiqada o'z `RENDER_EXTERNAL_URL/health` manziliga ping yuboradi (avtomatik). Qo'shimcha kafolat uchun [UptimeRobot](https://uptimerobot.com) kabi xizmatda shu manzilni 5 daqiqalik monitoringga qo'yish tavsiya etiladi.
-- **Vaqtinchalik disk:** Free tarifda har deploy/qayta ishga tushishda `yordamchi_bot.db` va `leadlar.csv` **o'chib ketadi**. Murojaatlar tarixini doimiy saqlash uchun **Google Sheets ni albatta ulang** (yoki pullik tarifda disk ulab, `DB_PATH`/`CSV_PATH` ni o'sha diskka yo'naltiring).
+Menejer Telegram Business chatida mijozga o'zi yozsa, bot shu chatda 30 daqiqa jim turadi.
 
 ---
 
-## 📲 Telegram Business-ga ulash
+## ⚠️ Cheklovlar
 
-1. Telegram dasturida **Sozlamalar** → **Telegram Business** → **Chatbotlar** bo'limiga kiring.
-2. O'zingizning botingizni tanlang va ruxsat bering.
-3. Botga kirib **/start** tugmasini bosing — hisobotlar sizga kela boshlaydi.
+- **Groq bepul tarifi:** har bir model uchun daqiqasiga ~8 000 token va kuniga 200 000 token. Bitta javob ~3 500–4 000 token, ya'ni bepul tarifda har model daqiqasiga ~2 ta, kuniga ~50 ta javob beradi. Bot limitga urilganda darhol zaxira modelga o'tadi, lekin **real sotuv uchun Groq Developer (pullik) tarifiga o'tish kerak** — aks holda mijozlar ko'p bo'lganda javoblar kechikadi yoki "menejer javob beradi" deyiladi.
+- **Render Free:** 15 daqiqa so'rov bo'lmasa uxlaydi (bot o'ziga ping yuborib buni oldini oladi); diskdagi baza deploy'da **o'chadi** — CRM tarixi uchun Google Sheets'ni albatta ulang.
+- **Telegram Business:** bot mijozga faqat u oxirgi 24 soatda yozgan bo'lsa xabar yubora oladi. Taklif kechikib yuborilsa va xato bo'lsa, ombor chatida ogohlantirish chiqadi.
+- **Rasm/fayl:** AI rasmni ko'ra olmaydi — mijoz yuborgan rasm (masalan, dvigatel shildigi) menejer va ombor chatiga yuboriladi.

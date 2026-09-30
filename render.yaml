@@ -15,11 +15,19 @@ services:
         sync: false
       - key: OWNER_ID
         sync: false
-      - key: EGA_ISMI
-        value: Zuxriddin
+      - key: SKLAD_CHAT_ID
+        sync: false
+      - key: KOMPANIYA_NOMI
+        value: UMATIC
+      - key: NARX_OMBORDAN
+        value: "0"
+      - key: KATTA_BUYURTMA_CHEGARASI
+        value: "100000000"
+      - key: OLDINDAN_TOLOV_FOIZI
+        value: "50"
       - key: MODEL
-        value: qwen/qwen3.8-27b
+        value: openai/gpt-oss-120b
       - key: FALLBACK_MODELS
-        value: openai/gpt-oss-120b,openai/gpt-oss-20b
+        value: qwen/qwen3.8-27b
       - key: GOOGLE_SHEET_WEBHOOK_URL
         sync: false

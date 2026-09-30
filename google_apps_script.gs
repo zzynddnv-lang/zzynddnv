@@ -1,5 +1,5 @@
 /**
- * ZUXRIDDIN YORDAMCHISI - Google Sheets webhook (Apps Script)
+ * SAVDO BOT CRM - Google Sheets webhook (Apps Script)
  *
  * O'rnatish:
  *  1. Google Sheets jadvalini oching -> Kengaytmalar (Extensions) -> Apps Script.
@@ -14,19 +14,22 @@
  * yangilangan dosye kelganda mavjud qator yangilanadi, dublikat qo'shilmaydi.
  */
 
-const VARAQ_NOMI = "Murojaatlar";
+const VARAQ_NOMI = "CRM";
 
 const USTUNLAR = [
   ["sana", "Sana"],
-  ["ism", "Murojaatchi Ismi"],
+  ["ism", "Mijoz"],
   ["telefon", "Telefon"],
   ["username", "Telegram"],
   ["telegram_id", "Telegram ID"],
-  ["tashkilot", "Tashkilot / Kasbi"],
-  ["mavzu", "Mavzu"],
-  ["muhimlik", "Muhimlik"],
-  ["izoh", "Xulosa / Tafsilot"],
-  ["holat", "Holati"],
+  ["tashkilot", "Kompaniya"],
+  ["lavozim", "Lavozim"],
+  ["ehtiyoj", "Ehtiyoj"],
+  ["mahsulot", "Mahsulot"],
+  ["bosqich", "Bosqich"],
+  ["harorat", "Harorat"],
+  ["summa", "Taklif summasi (so'm)"],
+  ["izoh", "Xulosa"],
   ["yangilangan_vaqt", "Oxirgi yangilanish"],
 ];
 
