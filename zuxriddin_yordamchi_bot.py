@@ -98,6 +98,8 @@ KUZATISH_SOAT = int(os.getenv("KUZATISH_SOAT", "6"))             # taklifga javo
 EGA_PAUZA_DAQIQA = 30                                            # menejer o'zi yozsa, bot shuncha jim turadi
 KEEPALIVE_ORALIQ = 10 * 60
 FON_TEKSHIRUV_ORALIQ = 5 * 60
+# Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
+SUHBAT_VERSIYASI = "umatic-savdo-1"
 LIMIT_KUTISH = 15                                                # hamma modellar limitda bo'lsa, kutish (soniya)
 
 
@@ -276,6 +278,8 @@ def init_runtime():
         groq_chat = AsyncGroq(api_key=GROQ_API_KEY, max_retries=0, timeout=60)
 
     db.init_db()
+    if db.suhbat_versiyasini_yangilash(SUHBAT_VERSIYASI):
+        logging.warning("Suhbat versiyasi yangilandi (%s): eski suhbat tarixi tozalandi, CRM saqlandi.", SUHBAT_VERSIYASI)
     BILIMLAR = bilimlarni_yuklash()
     logging.info("Bilimlar yuklandi: %s belgi", len(BILIMLAR))
 
@@ -1179,6 +1183,7 @@ async def start_komandasi(message: types.Message):
         salom = tanishtiruv_matni(til)
         await asyncio.to_thread(db.save_chat_meta, message.chat.id, user.id, None, til)
         await asyncio.to_thread(db.add_message, message.chat.id, "assistant", TAQDIMOT_BELGISI)
+        await asyncio.to_thread(db.taqdimot_belgilash, message.chat.id)
         await message.answer(salom)
         return
 
@@ -1431,9 +1436,10 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
         # Suhbatning birinchi xabari: AI dan oldin kompaniya va mahsulotlar taqdimoti yuboriladi
         taqdimot_hozir = False
-        if not any(m.get("role") == "assistant" for m in tarix):
+        if not await asyncio.to_thread(db.taqdimot_yuborilganmi, chat_id):
             tanishtiruv = tanishtiruv_matni(til)
             if await mijozga_yuborish(chat_id, bcid, tanishtiruv) is None:
+                await asyncio.to_thread(db.taqdimot_belgilash, chat_id)
                 await asyncio.to_thread(db.add_message, chat_id, "assistant", TAQDIMOT_BELGISI)
                 tarix.append({"role": "assistant", "content": TAQDIMOT_BELGISI})
                 taqdimot_hozir = True

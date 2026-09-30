@@ -711,6 +711,26 @@ class TanishtiruvTest(unittest.TestCase):
         tarix = db.get_chat_history(42)
         self.assertEqual(tarix[-1]["content"], b.TAQDIMOT_BELGISI)  # to'liq matn emas - token tejaladi
 
+    def test_eski_yordamchi_tarixi_bor_chatga_ham_taqdimot(self):
+        """Foydalanuvchi holati: bazada eski shaxsiy yordamchi javoblari qolgan chat."""
+        db.add_message(43, "user", "salom")
+        db.add_message(43, "assistant", "Sizni qanday yordam bera olaman? Ismingiz va telefon raqamingizni yozsangiz, Zuxriddin siz bilan bog'lanadi.")
+        self._yoz("Assalomu alaykum", chat_id=43)
+        self.assertEqual(len(self.yuborilgan), 1)
+        self.assertIn("UMATIC", self.yuborilgan[0])
+        self._yoz("dvigatel kerak", chat_id=43)
+        self.assertEqual(sum("Kran-metallurgiya" in x for x in self.yuborilgan), 1)  # ikkinchi marta yo'q
+
+    def test_versiya_yangilanganda_tarix_tozalanadi_crm_qoladi(self):
+        db.add_message(44, "assistant", "Zuxriddin siz bilan bog'lanadi")
+        db.taqdimot_belgilash(44)
+        db.upsert_lead(44, full_name="Eski mijoz", telegram_id=44)
+        self.assertTrue(db.suhbat_versiyasini_yangilash("test-v2"))
+        self.assertEqual(db.get_chat_history(44), [])
+        self.assertFalse(db.taqdimot_yuborilganmi(44))
+        self.assertEqual(db.get_lead(44)["full_name"], "Eski mijoz")
+        self.assertFalse(db.suhbat_versiyasini_yangilash("test-v2"))  # ikkinchi marta tozalamaydi
+
     def test_ruscha_mijozga_ruscha_taqdimot(self):
         self._yoz("Здравствуйте", chat_id=41)
         self.assertIn("Крановые", self.yuborilgan[0])

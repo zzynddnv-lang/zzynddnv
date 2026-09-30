@@ -75,6 +75,7 @@ def init_db():
             ("business_connection_id", "TEXT"),
             ("mijoz_id", "INTEGER"),
             ("menejer_chaqirilgan", "TEXT"),
+            ("taqdimot_at", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE chats ADD COLUMN {ustun_nomi} {ustun_turi};")
@@ -165,7 +166,10 @@ def init_db():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sorovlar_chat ON sorovlar (chat_id, id DESC);")
 
-        # 6) Bot egalari jadvali
+        # 6) Tizim sozlamalari (masalan, suhbat versiyasi)
+        cursor.execute("CREATE TABLE IF NOT EXISTS meta (kalit TEXT PRIMARY KEY, qiymat TEXT);")
+
+        # 6a) Bot egalari jadvali
         cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
 
         # 7) So'rovlarni tezlashtiruvchi indekslar
@@ -226,7 +230,7 @@ def clear_chat_history(chat_id: int):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
         cursor.execute("""
-            UPDATE chats SET is_completed = 0, owner_last_active = NULL, updated_at = ? WHERE chat_id = ?
+            UPDATE chats SET is_completed = 0, owner_last_active = NULL, taqdimot_at = NULL, updated_at = ? WHERE chat_id = ?
         """, (vaqt, chat_id))
 
 
@@ -592,3 +596,42 @@ def get_faol_sorovlar() -> List[sqlite3.Row]:
             FAOL_SOROV_HOLATLARI,
         )
         return cursor.fetchall()
+
+
+# =====================================================================
+#  TAQDIMOT VA SUHBAT VERSIYASI
+# =====================================================================
+
+def taqdimot_yuborilganmi(chat_id: int) -> bool:
+    """Ushbu chatga kompaniya taqdimoti (joriy sessiyada) yuborilganmi?"""
+    with get_db() as conn:
+        row = conn.execute("SELECT taqdimot_at FROM chats WHERE chat_id = ?", (chat_id,)).fetchone()
+        return bool(row and row["taqdimot_at"])
+
+
+def taqdimot_belgilash(chat_id: int):
+    vaqt = _hozir()
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO chats (chat_id, is_completed, taqdimot_at, created_at, updated_at)
+            VALUES (?, 0, ?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET taqdimot_at = excluded.taqdimot_at
+        """, (chat_id, vaqt, vaqt, vaqt))
+
+
+def suhbat_versiyasini_yangilash(versiya: str) -> bool:
+    """
+    Bot versiyasi o'zgargan bo'lsa (masalan, shaxsiy yordamchidan savdo botiga), eski suhbat tarixini
+    bir marta tozalaydi - AI eski uslubni takrorlamasligi uchun. Mijoz kartochkalari (leads) saqlanadi.
+    Qaytaradi: True - tarix tozalandi.
+    """
+    with get_db() as conn:
+        row = conn.execute("SELECT qiymat FROM meta WHERE kalit = 'suhbat_versiyasi'").fetchone()
+        if row and row["qiymat"] == versiya:
+            return False
+        conn.execute("DELETE FROM messages")
+        conn.execute("UPDATE chats SET taqdimot_at = NULL, owner_last_active = NULL")
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (kalit, qiymat) VALUES ('suhbat_versiyasi', ?)", (versiya,)
+        )
+        return True
