@@ -235,9 +235,35 @@ def _harf_sonlari(matn: str) -> tuple[int, int]:
     return kirill, lotin
 
 
+# O'zbek (kirill) va rus tillarini ajratish uchun belgilar: so'zlar va qo'shimchalar
+_UZ_KIRILL_SOZ_REGEX = re.compile(
+    r"\b(ва|бу|шу|у|мен|сиз|биз|улар|нима|нега|қандай|кандай|қанча|канча|қачон|качон|керак|бор|йўқ|йук|йок|"
+    r"ҳам|хам|учун|билан|лекин|ёки|эмас|бўлди|булди|яхши|хоп|раҳмат|рахмат|ака|опа|ассалому|салом|"
+    r"борми|йўқми|қилиш|килиш|бериш|олиш|ёзинг|айтинг|қаердан|каердан|нарх|нархи|товар|сотмоқда)\b"
+)
+_UZ_KIRILL_QOSHIMCHA = re.compile(
+    r"[а-яўқғҳ]{2,}(лар|ларни|ларга|ни|га|да|дан|даги|ми|чи|миз|сиз|мади|майди|япти|ябти|ябди|моқда|мокда|"
+    r"ган|ганим|ганимда|ганда|ини|ига|ида|идан|ишни|иш|ади|айди|мизни|ингиз|нгиз)\b"
+)
+_RU_SOZ_REGEX = re.compile(
+    r"\b(что|как|это|нужен|нужна|нужно|нужны|можно|есть|для|пожалуйста|здравствуйте|сколько|какой|какая|какие|"
+    r"мне|вы|вас|вам|не|и|в|на|с|по|из|или|бы|ли|уже|ещё|еще|очень|спасибо|добрый|хочу|надо|где|когда|почему|"
+    r"будет|был|была|если|только|тоже|также|у)\b"
+)
+_RU_QOSHIMCHA = re.compile(r"[а-я]{2,}(ый|ий|ой|ая|яя|ое|ее|ые|ие|ть|ться|ешь|ет|ют|ит|ят|ого|его|ому|ему|ых|их|ами|ями|ов|ев)\b")
+
+
+def _uz_kirill_ballari(past: str) -> tuple[int, int]:
+    """(o'zbek balli, rus balli) - kirill matn uchun."""
+    uz = 3 * sum(1 for c in past if c in "ўқғҳ") + 2 * len(_UZ_KIRILL_SOZ_REGEX.findall(past)) + len(_UZ_KIRILL_QOSHIMCHA.findall(past))
+    ru = 2 * len(_RU_SOZ_REGEX.findall(past)) + len(_RU_QOSHIMCHA.findall(past))
+    return uz, ru
+
+
 def tilni_aniqlash(matn: str, oldingi: str = "") -> str:
     """
     Matn yozilgan tilni aniqlaydi: uz_latn, uz_cyrl yoki ru.
+    Kirill matnda o'zbek va rus so'zlari/qo'shimchalari solishtiriladi ("таништирмаябти" - o'zbekcha).
     Matnda harf juda kam bo'lsa ("ok", "5", emoji) - oldingi aniqlangan til qoldiriladi.
     """
     matn = matn or ""
@@ -246,12 +272,35 @@ def tilni_aniqlash(matn: str, oldingi: str = "") -> str:
         return oldingi
     if kirill <= lotin:
         return "uz_latn"
-    past = matn.lower()
-    if any(c in _UZ_KIRILL_HARFLAR for c in matn) or any(s in past for s in _UZ_KIRILL_SOZLAR):
+    uz, ru = _uz_kirill_ballari(matn.lower())
+    if uz > ru:
         return "uz_cyrl"
-    if oldingi == "uz_cyrl" and kirill < 15:
-        return "uz_cyrl"  # qisqa kirill xabar ("хоп", "ок") - avvalgi o'zbek kirill davom etadi
-    return "ru"
+    if uz == ru and oldingi in ("uz_cyrl", "ru"):
+        return oldingi  # aniq emas (masalan "ок", "хоп") - avvalgi kirill til davom etadi
+    return "ru" if ru > uz else "uz_cyrl" if any(c in _UZ_KIRILL_HARFLAR for c in matn) else "ru"
+
+
+_TIL_SOROVLARI = (
+    ("uz_cyrl", r"kirill(da|cha)?\b|кирилл|кирил(да|ча)"),
+    ("uz_latn", r"lotin(da|cha)?\b|латин|лотин(да|ча)"),
+    ("ru", r"rus\s*(tilida|tiliga|cha)|ruscha|по-?русски|на\s+русском|русск(ий|ом)\s+язык|русча|рус\s+тил"),
+    ("uz", r"o['‘’`]?zbek\s*(tilida|tiliga|cha)|o['‘’`]?zbekcha|по-?узбекски|на\s+узбекском|узбекск|ўзбек\s*(тилида|ча)|узбек\s*(тилида|ча)|ўзбекча|узбекча"),
+)
+
+
+def til_sorovi(matn: str) -> str | None:
+    """
+    Mijoz tilni o'zgartirishni so'radimi? ("rus tilida gapiring", "по-узбекски", "kirillda yozing")
+    Qaytaradi: uz_latn / uz_cyrl / ru yoki None.
+    """
+    past = (matn or "").lower()
+    for til, naqsh in _TIL_SOROVLARI:
+        if re.search(naqsh, past):
+            if til == "uz":
+                kirill, lotin = _harf_sonlari(matn)
+                return "uz_cyrl" if kirill > lotin else "uz_latn"
+            return til
+    return None
 
 
 # Texnik belgilar (kVt, V, IP55, UMATIC...) yozuvni aniqlashga xalaqit bermasligi uchun olib tashlanadi
@@ -334,6 +383,51 @@ _YOQ_REGEX = re.compile(r"(yo['‘’`]?q|йўқ|йук|нет|0|-)", re.IGNOREC
 class OmborJavobi:
     narxlar: list[dict] = field(default_factory=list)  # [{"narx": int, "mavjud": int}]
     izoh: str = ""
+
+
+def ombor_mavjudlik_tahlil(matn: str, pozitsiyalar: list[dict]) -> OmborJavobi:
+    """
+    Mavjudlik rejimi: ombor mas'uli har bir pozitsiya uchun bitta qatorda omborda NECHTA borligini yozadi.
+        3        <- 3 ta bor
+        yo'q / 0 <- yo'q
+        izoh: ...  <- ixtiyoriy, mijozga ko'rinadi
+    Narx so'ralmaydi. Xato bo'lsa ValueError (tushunarli xabar bilan).
+    """
+    izohlar, qatorlar = [], []
+    for qator in (matn or "").splitlines():
+        qator = qator.strip()
+        if not qator:
+            continue
+        izoh_match = re.match(r"^(izoh|изоҳ|изох|izox|примечание)\s*[:\-]\s*(.*)$", qator, re.IGNORECASE)
+        if izoh_match:
+            izohlar.append(izoh_match.group(2).strip())
+        else:
+            qatorlar.append(qator)
+    if len(qatorlar) != len(pozitsiyalar):
+        raise ValueError(
+            f"{len(pozitsiyalar)} ta pozitsiya uchun {len(pozitsiyalar)} ta qator kerak, siz {len(qatorlar)} ta yozdingiz."
+        )
+    natija = []
+    for i, qator in enumerate(qatorlar, 1):
+        qator = re.sub(r"^\s*\d+\s*[).]\s+", "", qator)
+        if _YOQ_REGEX.fullmatch(qator.strip()):
+            natija.append({"narx": 0, "mavjud": 0})
+            continue
+        sonlar = sonlarni_ajratish(qator)
+        if len(sonlar) != 1:
+            raise ValueError(f"{i}-qatorda faqat omborda nechta borligini yozing (masalan: 3, yoki yo'q).")
+        natija.append({"narx": 0, "mavjud": sonlar[0]})
+    return OmborJavobi(narxlar=natija, izoh=" ".join(izohlar)[:500])
+
+
+def mavjudlik_korinishi(pozitsiyalar: list[dict], narxlar: list[dict]) -> str:
+    """Ombor mas'uliga tasdiqlash uchun: har pozitsiya bo'yicha so'ralgan va omborda bor soni."""
+    qatorlar = []
+    for i, (p, n) in enumerate(zip(pozitsiyalar, narxlar), 1):
+        bor = n.get("mavjud", 0)
+        belgi = "✅" if bor >= p["miqdor"] else ("⚠️" if bor else "❌")
+        qatorlar.append(f"{belgi} {i}. {p['nomi']} — so'ralgan {p['miqdor']} {p['birlik']}, omborda {bor}")
+    return "\n".join(qatorlar)
 
 
 def ombor_javobini_tahlil(matn: str, pozitsiyalar: list[dict]) -> OmborJavobi:
@@ -450,7 +544,8 @@ _MATNLAR = {
         "start": "Assalomu alaykum! {kompaniya} savdo bo'limiga xush kelibsiz. Elektr dvigatel tanlashda yordam beraman. Sizga qanday quvvat va aylanish tezligidagi dvigatel kerak?",
         "taklif_izoh": "📄 Tijorat taklifi {raqam}",
         "taklif_tayyorlanmoqda": "Tijorat taklifini hozir yuboraman, narx bo'yicha menejerimiz siz bilan bog'lanadi.",
-        "taklif_predmeti": "Elektr dvigatellarni yetkazib berish ({soni} pozitsiya)",
+        "taklif_predmeti": "Uskunalar va materiallar yetkazib berish ({soni} pozitsiya)",
+        "mavjudlik_tekshirilmoqda": "Omborda mavjudligini tekshirib, tijorat taklifini tez orada yuboraman.",
     },
     "uz_cyrl": {
         "sarlavha": "📄 ТИЖОРАТ ТАКЛИФИ №{id}",
@@ -472,7 +567,8 @@ _MATNLAR = {
         "start": "Ассалому алайкум! {kompaniya} савдо бўлимига хуш келибсиз. Электр двигател танлашда ёрдам бераман. Сизга қандай қувват ва айланиш тезлигидаги двигател керак?",
         "taklif_izoh": "📄 Тижорат таклифи {raqam}",
         "taklif_tayyorlanmoqda": "Тижорат таклифини ҳозир юбораман, нарх бўйича менежеримиз сиз билан боғланади.",
-        "taklif_predmeti": "Elektr dvigatellarni yetkazib berish ({soni} pozitsiya)",
+        "taklif_predmeti": "Ускуна ва материаллар етказиб бериш ({soni} позиция)",
+        "mavjudlik_tekshirilmoqda": "Омборда мавжудлигини текшириб, тижорат таклифини тез орада юбораман.",
     },
     "ru": {
         "sarlavha": "📄 КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ №{id}",
@@ -494,7 +590,8 @@ _MATNLAR = {
         "start": "Здравствуйте! Добро пожаловать в отдел продаж {kompaniya}. Помогу подобрать электродвигатель. Какой мощности и частоты вращения двигатель вам нужен?",
         "taklif_izoh": "📄 Коммерческое предложение {raqam}",
         "taklif_tayyorlanmoqda": "Сейчас отправлю коммерческое предложение, по цене с вами свяжется наш менеджер.",
-        "taklif_predmeti": "Поставка электродвигателей ({soni} поз.)",
+        "taklif_predmeti": "Поставка оборудования и материалов ({soni} поз.)",
+        "mavjudlik_tekshirilmoqda": "Проверю наличие на складе и скоро отправлю коммерческое предложение.",
     },
 }
 
@@ -592,66 +689,273 @@ def takrorlanganmi(javob: str, oldingilar, chegara: float = 0.9) -> bool:
 
 
 # =====================================================================
-#  KATALOGDAN KERAKLI QISMNI TANLASH (token tejash - har safar 40 ta model yuborilmaydi)
+#  KATALOG: TANLASH, MODELNI TOPISH, NOMLARNI TO'G'RILASH
+#  (token tejash - har safar 104 ta mahsulot emas, faqat mijozga mos qismi yuboriladi)
 # =====================================================================
 
+BOLIM_SARLAVHALARI = {
+    "AIR": "Umumsanoat asinxron dvigatellar (АИР)",
+    "MTN": "Kran-metallurgiya dvigatellari (МТН, МТКН)",
+    "VA": "Portlashdan himoyalangan dvigatellar (ВА, ВАО)",
+    "SD": "Sinxron dvigatellar (СД, СДМ, СДН, ВДС, СТДМ)",
+    "ECV": "Quduq (skvajina) nasos agregatlari (ЭЦВ)",
+    "D": "Ikki tomonlama kirishli nasoslar (Д)",
+    "K": "Konsol nasoslar (К)",
+    "KM": "Monoblok nasoslar (Гном)",
+    "PROVOD": "Mis emal sim (ПЭТВ-2)",
+    "STATOR": "Stator va yakor o'ram seksiyalari, kollektorlar (buyurtma asosida tayyorlanadi)",
+    "LENTA": "Kiper lenta",
+    "PERCHATKA": "Ish qo'lqoplari",
+}
+DVIGATEL_BOLIMLARI = ("AIR", "MTN", "VA", "SD")
+NASOS_BOLIMLARI = ("ECV", "D", "K", "KM")
+IZOLYATSIYA_BOLIMLARI = ("PROVOD", "STATOR", "LENTA", "PERCHATKA")
+
+# So'z boshidan (\b) qidiriladi: "экран" -> "кран", "магазин" -> "газ" kabi xato mosliklar bo'lmasligi uchun.
+# Uzbekcha "va" bog'lovchisi ВА seriyasi deb olinmasligi uchun faqat "VA 160", "VAO" kabi yozuvlar.
 _TUR_KALITLARI = {
-    # So'z boshidan (\b) qidiriladi: "экран" -> "кран", "магазин" -> "газ" kabi xato mosliklar bo'lmasligi uchun.
-    # Uzbekcha "va" bog'lovchisi VA seriyasi deb olinmasligi uchun faqat "VA 160", "VAO" kabi yozuvlar.
-    "AIR": r"umumsanoat|asinxron|асинхрон|общепром|\bair|\bаир|\bnasos|\bнасос|konveyer|конвейер|ventilyator|вентилятор|kompressor|компрессор|stanok|станок",
-    "MTN": r"\bkran|\bкран|ko['‘’`]?tarish|подъ[её]м|\blift|\bлифт|\bmtn|\bмтн|\bmtkn|\bмткн|metallurg|металлург",
+    "AIR": r"umumsanoat|asinxron|асинхрон|общепром|\bair|\bаир|konveyer|конвейер|ventilyator|вентилятор|kompressor|компрессор|stanok|станок",
+    "MTN": r"\bkran|\bкран|ko['‘’`]?tarish|кўтариш|подъ[её]м|\blift|\bлифт|\bmtn|\bмтн|\bmtkn|\bмткн|metallurg|металлург",
     "VA": r"portla|взрыв|\bex\b|\bneft|\bнефт|\bgaz\b|\bгаз\b|shaxta|шахт|kimyo|хими|\bva\s?\d|\bvao|\bва\s?\d|\bвао",
     "SD": r"sinxron|синхрон|\bsd\d|\bsdm|\bсд\d|\bсдм|\bсдв|\bvds|\bвдс|\bstdm|\bстдм|tegirmon|мельниц|\d+\s*kv\b|\d+\s*кв\b",
+    "ECV": r"quduq|қудуқ|кудук|skvajin|скважин|\becv|\bэцв|артезиан|\bets?v",
+    "D": r"ikki\s+tomonlama|икки\s+томонлама|двухсторон|\bд\s?\d{3}|\bd\s?\d{3}",
+    "K": r"konsol|консол|\b1к\b|\b1k\b|\b1[кk]\s?\d",
+    "KM": r"monoblok|моноблок|гном|\bgnom|drenaj|дренаж|loyqa|лойқа|грязн|ифлос",
+    "PROVOD": r"\bsim\b|\bsimi\b|\bсим\b|провод|\bemal|\bэмал|пэтв|\bpetv|обмоточн",
+    "STATOR": r"stator|статор|seksiya|секци|yakor|якор|o['‘’`]?ram|ўрам|\bурам|обмотк|kollektor|коллектор|sterjen|стерж",
+    "LENTA": r"kiper|кипер|\blenta|\bлента",
+    "PERCHATKA": r"qo['‘’`]?lqop|қўлқоп|кулкоп|перчат|рукавиц|краги",
 }
+_GURUH_KALITLARI = (
+    (r"dvigatel|двигател|\bmotor|\bмотор", DVIGATEL_BOLIMLARI),
+    (r"\bnasos|\bнасос|\bpump", NASOS_BOLIMLARI),
+    (r"izolyats|изоляц|изолятс", IZOLYATSIYA_BOLIMLARI),
+)
+MAX_KATALOG_QATOR = 25
 
 
-def katalogni_ajratish(matn: str) -> dict[str, list[str]]:
-    """04_katalog.md matnini bo'limlarga ajratadi: {"AIR": [qatorlar], ...}."""
-    bolimlar, joriy = {}, None
-    for qator in (matn or "").splitlines():
-        if qator.startswith("## "):
-            sarlavha = qator.upper()
-            joriy = next((k for k in ("AIR", "MTN", "VA", "SD") if k in sarlavha), None)
-            if joriy:
-                bolimlar[joriy] = [qator.strip()]
-        elif joriy and qator.startswith("- "):
-            bolimlar[joriy].append(qator.strip())
+def _son(matn) -> float:
+    m = re.search(r"\d+(?:[.,]\d+)?", str(matn or "").replace(" ", ""))
+    return float(m.group(0).replace(",", ".")) if m else 0.0
+
+
+def _xus(x: dict, *naqshlar: str) -> str:
+    """Xususiyatlar ichidan kalit nomi naqshga mos birinchi qiymat."""
+    for naqsh in naqshlar:
+        for k, v in x.get("xus", {}).items():
+            if re.search(naqsh, k, re.IGNORECASE) and v:
+                return str(v).strip()
+    return ""
+
+
+def _birlik(matn: str) -> str:
+    return (matn.replace("кВт", "kVt").replace("об/мин", "ob/min").replace(" В", " V").replace("м³/ч", "m³/soat"))
+
+
+def katalog_qatori(x: dict) -> tuple[str, float]:
+    """Mahsulot uchun ixcham katalog qatori va uning quvvati (kVt, saralash/filtrlash uchun)."""
+    b, model = x["bolim"], x["model"]
+    if b in DVIGATEL_BOLIMLARI:
+        m = re.search(r"\s(\d+(?:[ ,.]\d+)*)\s*кВт", x["nomi"])
+        kvt_nomi = m.group(1).strip() if m else ""
+        kvt_xus = re.sub(r"\s*кВт", "", _xus(x, r"^Мощность$")).strip()
+        if kvt_nomi and kvt_xus and abs(_son(kvt_nomi) - _son(kvt_xus)) > 0.01:
+            kvt = f"{kvt_nomi} kVt (saytda {kvt_xus} kVt ham ko'rsatilgan - quvvatni menejer aniqlaydi)"
+        else:
+            kvt = f"{kvt_xus or kvt_nomi} kVt"
+        ob = _xus(x, r"число оборотов|частота вращения") or (re.search(r"([\d,.]+)\s*об/мин", x["nomi"]) or [None, ""])[1]
+        if ob and "об" not in ob:
+            ob += " об/мин"
+        qism = [model, kvt, ob, _xus(x, r"^Напряжение$"), _xus(x, r"Степень защиты"),
+                ("KPD " + _xus(x, r"^КПД$")) if _xus(x, r"^КПД$") else ""]
+        return _birlik(" | ".join(q for q in qism if q)), _son(kvt_xus or kvt_nomi)
+    if b in NASOS_BOLIMLARI:
+        q = _xus(x, r"Подача")
+        h = _xus(x, r"^Напор")
+        kvt = _xus(x, r"Мощность двигателя", r"Мощность потребляемая.*номин", r"Мощность")
+        ob = _xus(x, r"Частота вращения.*об/мин", r"Частота вращения")
+        qism = [model,
+                f"{_son(q):g} m³/soat" if q else "",
+                f"napor {_son(h):g} m" if h else "",
+                f"{_son(kvt):g} kVt" if kvt else "",
+                f"{_son(ob):g} ob/min" if ob else ""]
+        return " | ".join(p for p in qism if p), _son(kvt)
+    if b == "PROVOD":
+        tavsif = x.get("tavsif", "")
+        material = _xus(x, r"Материал") or (re.search(r"Материал:\s*([а-яё]+)", tavsif) or [None, ""])[1]
+        sinf = _xus(x, r"нагревостойк") or (re.search(r"нагревостойкости:\s*([\w-]+)", tavsif) or [None, ""])[1]
+        qism = [model, material, f"issiqlikka chidamlilik {sinf}" if sinf else ""]
+        return " | ".join(p for p in qism if p), 0.0
+    birinchi_gap = re.split(r"(?<=[.!?])\s", x.get("tavsif", ""))[0][:110]
+    return f"{model} | {birinchi_gap}" if birinchi_gap else model, 0.0
+
+
+def katalogni_tayyorlash(mahsulotlar: list[dict]) -> dict[str, list[dict]]:
+    """katalog.json ro'yxatini bo'limlarga ajratadi va har bir mahsulotga ixcham qator qo'shadi."""
+    bolimlar: dict[str, list[dict]] = {}
+    for x in mahsulotlar:
+        if x.get("bolim") not in BOLIM_SARLAVHALARI:
+            continue
+        qator, kvt = katalog_qatori(x)
+        bolimlar.setdefault(x["bolim"], []).append({**x, "_qator": qator, "_kvt": kvt})
+    for b in bolimlar:
+        bolimlar[b].sort(key=lambda m: m["_kvt"])
     return bolimlar
 
 
-def _qator_kvt(qator: str) -> float:
-    m = re.search(r"\|\s*([\d\s]+(?:,\d+)?)\s*kVt", qator)
-    return float(m.group(1).replace(" ", "").replace(",", ".")) if m else 0.0
+def _katalog_bolimlari_tanlash(past: str) -> list[str]:
+    tanlangan = [k for k, naqsh in _TUR_KALITLARI.items() if re.search(naqsh, past)]
+    for naqsh, guruh in _GURUH_KALITLARI:
+        if re.search(naqsh, past):
+            tanlangan += [g for g in guruh if g not in tanlangan]
+    return tanlangan
 
 
-def katalog_tanlash(bolimlar: dict[str, list[str]], mijoz_matni: str) -> str:
+def katalog_tanlash(katalog: dict[str, list[dict]], mijoz_matni: str) -> str:
     """
     Mijoz yozganlariga qarab katalogdan kerakli qismni tanlaydi:
-    - quvvat (kVt) aytilgan bo'lsa - shu quvvatga yaqin (0,5x–2x) modellar;
-    - tur aytilgan bo'lsa (kran, portlashdan himoya, sinxron...) - shu bo'lim;
+    - tur/yo'nalish aytilgan bo'lsa (kran, quduq nasosi, emal sim...) - shu bo'limlar;
+    - quvvat (kVt) aytilgan bo'lsa - shu quvvatga yaqin (0,5x-2x) modellar;
     - hech narsa aytilmagan bo'lsa - katalog yuborilmaydi (umumiy ma'lumot bilimlarda bor).
     """
-    if not bolimlar:
+    if not katalog:
         return ""
     past = (mijoz_matni or "").lower()
     # "kVt", "квт", "kW" - quvvat; "кВ"/"kV" (kilovolt) - quvvat emas
     kvtlar = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:kvt|квт|kwt|kw)\b", past)]
-    turlar = [k for k, naqsh in _TUR_KALITLARI.items() if k in bolimlar and re.search(naqsh, past)]
-    if not kvtlar and not turlar:
+    bolimlar = [b for b in _katalog_bolimlari_tanlash(past) if b in katalog]
+    if not bolimlar and not kvtlar:
         return ""
+    if not bolimlar:
+        bolimlar = [b for b in DVIGATEL_BOLIMLARI + NASOS_BOLIMLARI if b in katalog]
 
-    natija = []
-    for tur in (turlar or list(bolimlar)):
-        sarlavha, *qatorlar = bolimlar[tur]
-        if kvtlar:
-            mos = [q for q in qatorlar if any(k * 0.5 <= _qator_kvt(q) <= k * 2 for k in kvtlar)]
-            if not mos and turlar:
-                # Aytilgan turda yaqin quvvat bo'lmasa - eng yaqin 2 tasi
-                mos = sorted(qatorlar, key=lambda q: min(abs(_qator_kvt(q) - k) for k in kvtlar))[:2]
-            qatorlar = mos
-        if qatorlar:
-            natija.append("\n".join([sarlavha, *qatorlar]))
+    natija, jami = [], 0
+    for b in bolimlar:
+        mahsulotlar = katalog[b]
+        if kvtlar and any(m["_kvt"] for m in mahsulotlar):
+            mos = [m for m in mahsulotlar if any(k * 0.5 <= m["_kvt"] <= k * 2 for k in kvtlar)]
+            if not mos and b in _katalog_bolimlari_tanlash(past):
+                mos = sorted(mahsulotlar, key=lambda m: min(abs(m["_kvt"] - k) for k in kvtlar))[:2]
+            mahsulotlar = mos
+        mahsulotlar = mahsulotlar[: max(0, MAX_KATALOG_QATOR - jami)]
+        if mahsulotlar:
+            natija.append("## " + BOLIM_SARLAVHALARI[b])
+            natija += ["- " + m["_qator"] for m in mahsulotlar]
+            jami += len(mahsulotlar)
     return "\n".join(natija)
+
+
+# ---------- Model nomlari: kirill (katalogdagidek) <-> lotin ----------
+
+_LOTIN_MOSLIK = {
+    "А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D", "Е": "E", "Ё": "E", "Ж": "J", "З": "Z", "И": "I", "Й": "Y",
+    "К": "K", "Л": "L", "М": "M", "Н": "N", "О": "O", "П": "P", "Р": "R", "С": "S", "Т": "T", "У": "U", "Ф": "F",
+    "Х": "H", "Ц": "C", "Ч": "CH", "Ш": "SH", "Щ": "SH", "Ъ": "", "Ы": "Y", "Ь": "", "Э": "E", "Ю": "YU", "Я": "YA",
+    "Ў": "O", "Қ": "Q", "Ғ": "G", "Ҳ": "H",
+}
+
+
+def model_kaliti(matn: str) -> str:
+    """Yozuvdan qat'i nazar solishtirish kaliti: 'АИР132М4У1', 'AIR 132 M4 U1', 'air132m4u1' -> 'AIR132M4U1'."""
+    t = "".join(_LOTIN_MOSLIK.get(c, c) for c in (matn or "").upper())
+    t = t.replace("X", "H").replace("TS", "C")
+    return re.sub(r"[^A-Z0-9]", "", t)
+
+
+def _hamma_mahsulotlar(katalog: dict[str, list[dict]]) -> list[dict]:
+    return [m for b in katalog.values() for m in b]
+
+
+def topilgan_modellar(katalog: dict[str, list[dict]], matn: str, limit: int = 3) -> list[dict]:
+    """Matnda tilga olingan aniq katalog modellari (kirill yoki lotin yozuvida)."""
+    kalit = model_kaliti(matn)
+    topildi = []
+    for m in sorted(_hamma_mahsulotlar(katalog), key=lambda x: -len(model_kaliti(x["model"]))):
+        mk = model_kaliti(m["model"])
+        if len(mk) >= 4 and re.search(r"\d", mk) and mk in kalit and not any(mk in model_kaliti(t["model"]) for t in topildi):
+            topildi.append(m)
+    return topildi[:limit]
+
+
+_KIRILL_LOTIN_SINF = {
+    "А": "АA", "В": "ВVB", "Д": "ДD", "Е": "ЕE", "И": "ИI", "К": "КK", "Л": "ЛL", "М": "МM", "Н": "НNH",
+    "О": "ОO", "П": "ПP", "Р": "РRP", "С": "СSC", "Т": "ТT", "У": "УUY", "Х": "ХXH", "Г": "ГG", "З": "ЗZ",
+    "Э": "ЭE", "Б": "БB", "Ы": "ЫY", "Й": "ЙY", "Ф": "ФF",
+}
+_NAQSH_KESH: dict[str, re.Pattern] = {}
+
+
+def _model_naqshi(model: str) -> re.Pattern:
+    """Model nomining lotin/kirill aralash yozilishini ham ushlaydigan naqsh ('AIR132M4U1' -> 'АИР132М4У1')."""
+    if model not in _NAQSH_KESH:
+        qismlar = []
+        for c in model.upper().replace(" ", "").replace("-", ""):
+            if c in _KIRILL_LOTIN_SINF:
+                qismlar.append(f"[{_KIRILL_LOTIN_SINF[c]}]")
+            elif c == "Ц":
+                qismlar.append("(?:Ц|C|TS)")
+            elif c == "Ш":
+                qismlar.append("(?:Ш|SH)")
+            elif c == "Ч":
+                qismlar.append("(?:Ч|CH)")
+            else:
+                qismlar.append(re.escape(c))
+        _NAQSH_KESH[model] = re.compile(r"(?<![\w])" + r"[\s-]?".join(qismlar) + r"(?![\w])", re.IGNORECASE)
+    return _NAQSH_KESH[model]
+
+
+_SERIYA_LOTIN = [
+    (r"(?<![\w])MTKN(?![a-z])", "МТКН"), (r"(?<![\w])MTN(?![a-z])", "МТН"), (r"(?<![\w])AIR(?![a-z])", "АИР"),
+    (r"(?<![\w])VAO(?![a-z])", "ВАО"), (r"(?<![\w])VA(?=[\s-]?\d|,|\)|/)", "ВА"), (r"(?<![\w])STDM(?![a-z])", "СТДМ"),
+    (r"(?<![\w])SDM(?![a-z])", "СДМ"), (r"(?<![\w])SDN(?![a-z])", "СДН"), (r"(?<![\w])SD(?=[\s-]?\d|,|\)|/)", "СД"),
+    (r"(?<![\w])VDS(?![a-z])", "ВДС"), (r"(?<![\w])(?:ECV|ETSV|ETsV)(?![a-z])", "ЭЦВ"),
+    (r"(?<![\w])PETV(?![a-z])", "ПЭТВ"), (r"(?<![\w])GNOM(?![a-z])|(?<![\w])Gnom(?![a-z])", "Гном"),
+]
+
+
+def model_nomlarini_tuzatish(matn: str, katalog: dict[str, list[dict]]) -> str:
+    """
+    AI lotinga o'girib yozgan model va seriya nomlarini katalogdagi asl (kirill) yozuvga qaytaradi:
+    'AIR132M4U1' -> 'АИР132М4У1', 'MTN 411-8' -> 'МТН 411-8', 'AIR seriyasi' -> 'АИР seriyasi'.
+    """
+    if not matn:
+        return matn
+    for m in sorted(_hamma_mahsulotlar(katalog), key=lambda x: -len(x["model"])):
+        if re.search(r"\d", m["model"]):
+            matn = _model_naqshi(m["model"]).sub(lambda t: m["model"] if re.search(r"[A-Za-z]", t.group(0)) else t.group(0), matn)
+    for naqsh, kirill in _SERIYA_LOTIN:
+        matn = re.sub(naqsh, kirill, matn)
+    return matn
+
+
+# AI ning takrorlanib turadigan atama xatolari ("sarf" o'rniga "sug'urta" - insurance)
+_ATAMA_TUZATISHLARI = (
+    (r"\bsu[g‘'ʻ`]?['‘’ʻ`]?urta(?=\s*\(?\s*m[³3])", "sarf"),
+    (r"\bсу[ғг]урта(?=\s*\(?\s*м[³3])", "сарф"),
+)
+
+
+def atamalarni_tuzatish(matn: str) -> str:
+    for naqsh, togri in _ATAMA_TUZATISHLARI:
+        matn = re.sub(naqsh, togri, matn or "", flags=re.IGNORECASE)
+    return matn
+
+
+def tafsilot_matni(m: dict) -> str:
+    """Aniq model uchun to'liq texnik ma'lumot (AI texnik savollarga javob berishi uchun)."""
+    xus = "; ".join(f"{k}: {v}" for k, v in list(m.get("xus", {}).items())[:16])
+    return f"{m['model']} ({m['nomi']}) — {xus}. {m.get('tavsif', '')[:350]} Sahifa: {m['url']}"
+
+
+_RASM_SOROV = re.compile(
+    r"rasm|surat|\bfoto|\bphoto|фото|расм|сурат|картин|изображ|ko['‘’`]?rinish|кўриниш|как\s+выгляд|qanaqa\s+ko['‘’`]?rin",
+    re.IGNORECASE,
+)
+
+
+def rasm_soraldimi(matn: str) -> bool:
+    return bool(_RASM_SOROV.search(matn or ""))
 
 
 # =====================================================================

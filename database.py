@@ -76,6 +76,7 @@ def init_db():
             ("mijoz_id", "INTEGER"),
             ("menejer_chaqirilgan", "TEXT"),
             ("taqdimot_at", "TEXT"),
+            ("til_tanlov", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE chats ADD COLUMN {ustun_nomi} {ustun_turi};")
@@ -424,7 +425,7 @@ def get_chat_meta(chat_id: int) -> Optional[sqlite3.Row]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT chat_id, mijoz_id, business_connection_id, til FROM chats WHERE chat_id = ?",
+            "SELECT chat_id, mijoz_id, business_connection_id, til, til_tanlov FROM chats WHERE chat_id = ?",
             (chat_id,),
         )
         return cursor.fetchone()
@@ -630,8 +631,19 @@ def suhbat_versiyasini_yangilash(versiya: str) -> bool:
         if row and row["qiymat"] == versiya:
             return False
         conn.execute("DELETE FROM messages")
-        conn.execute("UPDATE chats SET taqdimot_at = NULL, owner_last_active = NULL")
+        conn.execute("UPDATE chats SET taqdimot_at = NULL, owner_last_active = NULL, til_tanlov = NULL")
         conn.execute(
             "INSERT OR REPLACE INTO meta (kalit, qiymat) VALUES ('suhbat_versiyasi', ?)", (versiya,)
         )
         return True
+
+
+def til_tanlovini_saqlash(chat_id: int, til: str):
+    """Mijoz aniq so'ragan til ("rus tilida gapiring") - keyingi xabarlarda ham shu tilda javob beriladi."""
+    vaqt = _hozir()
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO chats (chat_id, is_completed, til, til_tanlov, created_at, updated_at)
+            VALUES (?, 0, ?, ?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET til = excluded.til, til_tanlov = excluded.til_tanlov
+        """, (chat_id, til, til, vaqt, vaqt))

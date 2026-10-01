@@ -37,6 +37,17 @@ import zuxriddin_yordamchi_bot as b  # noqa: E402
 b.TABIIY_MIN = b.TABIIY_MAX = 0
 
 
+def rejim_qoy(test: unittest.TestCase, rejim: str):
+    """Test davomida taklif rejimini o'rnatadi (mavjudlik / narx / darhol) va oxirida qaytaradi."""
+    eski = (b.TAKLIF_REJIMI, b.NARX_OMBORDAN, b.OMBOR_ORQALI)
+    b.TAKLIF_REJIMI, b.NARX_OMBORDAN, b.OMBOR_ORQALI = rejim, rejim == "narx", rejim in ("mavjudlik", "narx")
+
+    def qaytar():
+        b.TAKLIF_REJIMI, b.NARX_OMBORDAN, b.OMBOR_ORQALI = eski
+
+    test.addCleanup(qaytar)
+
+
 class TezlikTest(unittest.TestCase):
     """Token tejash (katalogdan faqat kerakli qism) va aqlli kutish."""
 
@@ -47,11 +58,11 @@ class TezlikTest(unittest.TestCase):
     def test_katalog_bilimlarga_qoshilmaydi_alohida_yuklanadi(self):
         bilim = b.bilimlarni_yuklash()
         self.assertNotIn("АИР132М4У1", bilim)
-        self.assertEqual(set(b.KATALOG), {"AIR", "MTN", "VA", "SD"})
-        self.assertEqual(sum(len(v) - 1 for v in b.KATALOG.values()), 40)
+        self.assertEqual(set(b.KATALOG), {"AIR", "MTN", "VA", "SD", "ECV", "D", "K", "KM", "PROVOD", "STATOR", "LENTA", "PERCHATKA"})
+        self.assertEqual(sum(len(v) for v in b.KATALOG.values()), 104)
 
     def test_umumiy_savolda_katalog_yuborilmaydi(self):
-        self.assertEqual(sotuv.katalog_tanlash(b.KATALOG, "salom, dvigatel kerak edi"), "")
+        self.assertEqual(sotuv.katalog_tanlash(b.KATALOG, "salom, yaxshimisiz, sizlar nima qilasizlar"), "")
 
     def test_quvvat_boyicha_yaqin_modellar(self):
         k = sotuv.katalog_tanlash(b.KATALOG, "11 kVt 1500 aylanishli dvigatel kerak")
@@ -388,9 +399,7 @@ class SotuvOqimiTest(unittest.TestCase):
     """Ombor rejimi (NARX_OMBORDAN=1): mijoz -> so'rov -> ombor narxi -> taklif."""
 
     def setUp(self):
-        self._narx_rejimi = b.NARX_OMBORDAN
-        b.NARX_OMBORDAN = True
-        self.addCleanup(setattr, b, "NARX_OMBORDAN", self._narx_rejimi)
+        rejim_qoy(self, "narx")
         db.init_db()
         with db.get_db() as conn:
             for t in ("leads", "sorovlar", "messages", "chats"):
@@ -472,7 +481,7 @@ class PdfTaklifTest(unittest.TestCase):
     """Narxsiz rejim (standart): pozitsiya va miqdor aniq bo'lsa mijozga UMATIC PDF taklifi yuboriladi."""
 
     def setUp(self):
-        self.assertFalse(b.NARX_OMBORDAN)  # standart rejim - narxsiz
+        rejim_qoy(self, "darhol")  # darhol narxsiz PDF rejimi
         db.init_db()
         with db.get_db() as conn:
             for t in ("leads", "sorovlar", "messages", "chats"):
@@ -571,6 +580,7 @@ class OmborOqimiTest(unittest.TestCase):
     MIJOZ_CHAT = 20
 
     def setUp(self):
+        rejim_qoy(self, "narx")
         db.init_db()
         with db.get_db() as conn:
             for t in ("leads", "sorovlar", "messages", "chats"):
@@ -721,8 +731,21 @@ class TanishtiruvTest(unittest.TestCase):
         for x in ("Salom, dvigatel kerak", "11 kVt bormi", "Здравствуйте, нужен двигатель", "", "👋"):
             self.assertFalse(sotuv.faqat_salommi(x), x)
 
+    def test_taqdimot_ozini_tanishtiradi_3_yonalish_kirill_nomlar(self):
+        """Xato #1, #2, #3: o'zini tanishtiradi, 3 yo'nalish, model nomlari kirillda."""
+        for til, ozi, nasos, izol in (
+            ("uz_latn", "AI savdo yordamchisiman", "Nasos agregatlari", "Elektroizolyatsiya"),
+            ("uz_cyrl", "AI савдо ёрдамчисиман", "Насос агрегатлари", "Электроизоляция"),
+            ("ru", "AI-помощник", "Насосные агрегаты", "Электроизоляционные"),
+        ):
+            matn = b.tanishtiruv_matni(til)
+            for soz in (ozi, nasos, izol, "АИР", "МТН", "ЭЦВ", "ПЭТВ-2"):
+                self.assertIn(soz, matn, f"{til}: {soz}")
+            for lotin in ("AIR", "MTN", "VAO", "ECV", "PETV"):
+                self.assertNotIn(lotin, matn, f"{til}: {lotin}")
+
     def test_matnlar_barcha_tillarda(self):
-        for til, soz in (("uz_latn", "Kran-metallurgiya"), ("uz_cyrl", "Кран-металлургия"), ("ru", "Крановые")):
+        for til, soz in (("uz_latn", "kran-metallurgiya"), ("uz_cyrl", "кран-металлургия"), ("ru", "крановые")):
             matn = b.tanishtiruv_matni(til)
             self.assertIn("UMATIC", matn)
             self.assertIn(soz, matn)
@@ -732,7 +755,7 @@ class TanishtiruvTest(unittest.TestCase):
         self._yoz("Assalomu alaykum")
         self.assertEqual(len(self.yuborilgan), 1)
         self.assertIn("UMATIC", self.yuborilgan[0])
-        self.assertIn("MTN", self.yuborilgan[0])
+        self.assertIn("МТН", self.yuborilgan[0])
         self.assertEqual(self.ai_chaqiruvlar, [])
 
     def test_savol_bilan_boshlasa_taqdimot_va_javob(self):
@@ -746,7 +769,7 @@ class TanishtiruvTest(unittest.TestCase):
         self._yoz("Assalomu alaykum")
         self._yoz("Konveyer uchun kerak")
         self.assertEqual(len(self.yuborilgan), 2)
-        self.assertEqual(sum("Kran-metallurgiya" in x for x in self.yuborilgan), 1)
+        self.assertEqual(sum("kran-metallurgiya" in x for x in self.yuborilgan), 1)
 
     def test_taqdimotni_takrorlash_aniqlanadi(self):
         taqdimot = b.tanishtiruv_matni("uz_latn")
@@ -767,7 +790,7 @@ class TanishtiruvTest(unittest.TestCase):
         self.assertEqual(len(self.yuborilgan), 1)
         self.assertIn("UMATIC", self.yuborilgan[0])
         self._yoz("dvigatel kerak", chat_id=43)
-        self.assertEqual(sum("Kran-metallurgiya" in x for x in self.yuborilgan), 1)  # ikkinchi marta yo'q
+        self.assertEqual(sum("kran-metallurgiya" in x for x in self.yuborilgan), 1)  # ikkinchi marta yo'q
 
     def test_versiya_yangilanganda_tarix_tozalanadi_crm_qoladi(self):
         db.add_message(44, "assistant", "Zuxriddin siz bilan bog'lanadi")
@@ -781,7 +804,7 @@ class TanishtiruvTest(unittest.TestCase):
 
     def test_ruscha_mijozga_ruscha_taqdimot(self):
         self._yoz("Здравствуйте", chat_id=41)
-        self.assertIn("Крановые", self.yuborilgan[0])
+        self.assertIn("крановые", self.yuborilgan[0])
 
 
 class MenejerVaZaxiraTest(unittest.TestCase):
@@ -969,6 +992,181 @@ class MenejerPauzaTest(unittest.TestCase):
         self._xabar(64, "yana yozdim", self.EGA)  # suhbat davom etmoqda - pauza qaytadan 5 daqiqa
         self._xabar(64, "savol", 641)
         self.assertEqual(self._bot_javoblari(64), [])
+
+
+class TestchiXatolariTest(unittest.TestCase):
+    """Testchi topgan 6 ta xato uchun: har biri qaytib kelmasligini kafolatlaydi."""
+
+    @classmethod
+    def setUpClass(cls):
+        b.bilimlarni_yuklash()
+
+    def setUp(self):
+        db.init_db()
+        with db.get_db() as conn:
+            for t in ("messages", "chats", "leads", "sorovlar"):
+                conn.execute(f"DELETE FROM {t}")
+        self.xabarlar, self.hujjatlar, self.rasmlar = [], [], []
+
+        async def send_message(chat_id, text, **kw):
+            self.xabarlar.append((chat_id, text))
+            return SimpleNamespace(message_id=len(self.xabarlar))
+
+        async def send_document(chat_id, document, caption=None, **kw):
+            self.hujjatlar.append((chat_id, document, caption))
+            return SimpleNamespace(message_id=1)
+
+        async def send_photo(chat_id, photo, caption=None, **kw):
+            self.rasmlar.append((chat_id, caption))
+            return SimpleNamespace(message_id=1)
+
+        async def noop(*a, **kw):
+            return None
+
+        b.bot = SimpleNamespace(send_message=send_message, send_document=send_document, send_photo=send_photo,
+                                send_chat_action=noop, id=999)
+        self.ai_tillari = []
+        self.ai_javobi = "Katalogimizda AIR132M4U1 bor: 11 kVt, 1460 ob/min."
+
+        async def soxta_ai(tarix, holat, til="uz_latn"):
+            self.ai_tillari.append(til)
+            self.oxirgi_holat = holat
+            n = sotuv.ai_natijasini_ajratish(ai_json(javob=self.ai_javobi))
+            n["_birinchi"], n["til"] = False, til
+            return n
+
+        p = mock.patch.object(b, "ai_javob", soxta_ai)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _yoz(self, matn, chat_id=70):
+        db.taqdimot_belgilash(chat_id)  # taqdimot alohida testlangan
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=chat_id), text=matn, business_connection_id=None, sender_business_bot=None,
+            from_user=SimpleNamespace(id=chat_id, username=None, full_name="Test"),
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=False))
+
+    # --- #2: saytdagi boshqa mahsulotlar ham taklif qilinadi ---
+    def test_nasos_va_izolyatsiya_katalogda(self):
+        nasos = sotuv.katalog_tanlash(b.KATALOG, "quduq nasosi kerak")
+        self.assertIn("ЭЦВ 8-25-100", nasos)
+        sim = sotuv.katalog_tanlash(b.KATALOG, "emal sim kerak 0,5 mm")
+        self.assertIn("ПЭТВ-2 0,50 мм", sim)
+        self.assertIn("Перчатки", sotuv.katalog_tanlash(b.KATALOG, "qo'lqop bormi"))
+        self.assertIn("Секции статорных обмоток", sotuv.katalog_tanlash(b.KATALOG, "stator o'rami kerak"))
+
+    def test_korsatmada_boshqa_mahsulot_rad_etilmaydi(self):
+        korsatma = b.tizim_korsatmasi()
+        self.assertIn("NASOS AGREGATLARI", korsatma)
+        self.assertNotIn("hozircha faqat dvigatellar", korsatma)
+
+    # --- #3: model nomlari kirillda ---
+    def test_lotin_model_nomi_kirillga_qaytariladi(self):
+        self._yoz("11 kVt 1500 ob/min dvigatel kerak")
+        javob = [t for c, t in self.xabarlar if c == 70][-1]
+        self.assertIn("АИР132М4У1", javob)
+        self.assertNotIn("AIR132M4U1", javob)
+
+    # --- #4: til o'zgartirish ---
+    def test_ozbek_kirill_toggri_aniqlanadi(self):
+        for matn in ("Узини таништирмаябти", "Сухбат давомида тил узгартиромади", "Техник маълумот ва расм сураганимда жавоб бермади"):
+            self.assertEqual(sotuv.tilni_aniqlash(matn), "uz_cyrl", matn)
+
+    def test_tilni_soraganda_ozgaradi_va_saqlanadi(self):
+        self._yoz("salom, dvigatel kerak")
+        self._yoz("rus tilida gapiring")
+        self._yoz("11 kvt dvigatel kerak")  # lotinda yozdi, lekin rus tilini tanlagan
+        self.assertEqual(self.ai_tillari, ["uz_latn", "ru", "ru"])
+        self._yoz("ўзбекча ёзинг")
+        self.assertEqual(self.ai_tillari[-1], "uz_cyrl")
+
+    # --- #5: texnik ma'lumot va rasm ---
+    def test_texnik_tafsilot_korsatmaga_qoshiladi(self):
+        m = sotuv.topilgan_modellar(b.KATALOG, "АИР132М4У1 tokini ayting")[0]
+        tafsilot = sotuv.tafsilot_matni(m)
+        self.assertIn("Номинальный ток", tafsilot)
+        self.assertIn("umatic.uz", tafsilot)
+
+    def test_rasm_soralganda_yuboriladi(self):
+        async def soxta_rasm(url):
+            return b"\xff\xd8jpeg"
+
+        with mock.patch.object(b, "_rasmni_yuklash", soxta_rasm):
+            self._yoz("АИР132М4У1 rasmini yuboring")
+        self.assertEqual(len(self.rasmlar), 1)
+        self.assertIn("АИР132М4У1", self.rasmlar[0][1])
+        self.assertIn("rasmi avtomatik yuboriladi", " ".join(self.oxirgi_holat["qoshimcha"]))
+
+    def test_model_aytilmasa_rasm_uchun_soraydi(self):
+        self._yoz("rasm bormi?")
+        self.assertEqual(self.rasmlar, [])
+        self.assertIn("qaysi model", " ".join(self.oxirgi_holat["qoshimcha"]))
+
+    # --- #6: taklif omborda tekshirilgandan keyin ---
+    def test_standart_rejim_mavjudlik(self):
+        self.assertEqual(b.TAKLIF_REJIMI, "mavjudlik")
+        self.assertTrue(b.OMBOR_ORQALI)
+
+    def test_taklif_ombor_tasdiqlamaguncha_yuborilmaydi(self):
+        rejim_qoy(self, "mavjudlik")
+        n = sotuv.ai_natijasini_ajratish(ai_json(mahsulotlar=POZ, narx_sorash=True))
+        n["_birinchi"] = False
+        mijoz = SimpleNamespace(id=80, username=None, full_name="M")
+        asyncio.run(b.crm_yangilash(80, mijoz, n, {"faol": None, "taklif": None}, "", None, None))
+        self.assertEqual([h for h in self.hujjatlar if h[0] == 80], [])  # mijozga PDF hali ketmadi
+        sorov = db.get_faol_sorov(80)
+        self.assertIsNotNone(sorov)
+        self.assertTrue(any("MAVJUDLIK SO'ROVI" in t for c, t in self.xabarlar if c == -100500))
+
+    def _callback(self, data, chat_id=-100500):
+        async def answer(text=None, show_alert=False):
+            return None
+
+        async def noop(*a, **kw):
+            return None
+
+        async def reply(text, **kw):
+            self.xabarlar.append(("reply", text))
+
+        msg = SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=5, html_text="so'rov",
+                              edit_text=noop, edit_reply_markup=noop, reply=reply)
+        asyncio.run(b.ombor_tugmasi(SimpleNamespace(data=data, from_user=SimpleNamespace(id=555, full_name="Ombor"),
+                                                    message=msg, answer=answer)))
+
+    def test_hammasi_bor_keyin_pdf_omborda_ustuni_bilan(self):
+        rejim_qoy(self, "mavjudlik")
+        db.upsert_lead(81, full_name="Sardor", telegram_id=81)
+        sid = db.create_sorov(81, 81, None, "uz_latn", json.dumps(POZ), "k", "")
+        self._callback(f"s:hb:{sid}")
+        self.assertEqual(db.get_sorov(sid)["holat"], "tasdiq_kutilmoqda")
+        self.assertEqual([h for h in self.hujjatlar if h[0] == 81], [])  # tasdiqsiz ketmaydi
+        self._callback(f"s:ok:{sid}")
+        mijozga = [h for h in self.hujjatlar if h[0] == 81]
+        self.assertEqual(len(mijozga), 1)
+        self.assertEqual(db.get_sorov(sid)["holat"], "yuborildi")
+
+    def test_sonini_kiritish_va_hech_biri_yoq(self):
+        rejim_qoy(self, "mavjudlik")
+        sid = db.create_sorov(82, 82, None, "uz_latn", json.dumps(POZ), "k", "")
+        self._callback(f"s:n:{sid}")
+        self.assertIn("NECHTA", self.xabarlar[-1][1])
+
+        async def reply(text, **kw):
+            self.xabarlar.append(("reply", text))
+
+        xabar = SimpleNamespace(text="yo'q\n0", chat=SimpleNamespace(id=-100500), from_user=SimpleNamespace(id=555),
+                                message_id=9, reply=reply)
+        asyncio.run(b.ombor_narx_javobi(xabar, db.get_sorov(sid)))
+        self._callback(f"s:ok:{sid}")
+        self.assertEqual(db.get_sorov(sid)["holat"], "yoq")
+        self.assertEqual([h for h in self.hujjatlar if h[0] == 82], [])  # PDF emas
+        self.assertTrue(any(c == 82 for c, t in self.xabarlar))     # "omborda yo'q" xabari
+
+    def test_pdf_omborda_ustuni(self):
+        pdf = taklif_pdf.taklif_pdf(9, "ru", POZ, "Олег", "", "", "", mavjudlik=[3, 0])
+        self.assertTrue(pdf.startswith(b"%PDF"))
 
 
 class AiFallbackTest(unittest.TestCase):

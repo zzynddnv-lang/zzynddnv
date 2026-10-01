@@ -77,7 +77,16 @@ SKLAD_CHAT_ID = int(_sklad) if _sklad.lstrip("-").isdigit() else None
 #   0 (standart) - narxsiz: pozitsiya va miqdor aniq bo'lgach mijozga narxsiz PDF tijorat taklifi yuboriladi,
 #                  narxni menejer alohida bildiradi.
 #   1            - ombor orqali: omborga narx so'rovi ketadi, ombor narx kiritgach taklif (narx bilan) yuboriladi.
-NARX_OMBORDAN = os.getenv("NARX_OMBORDAN", "0").strip().lower() in ("1", "true", "ha", "yes")
+# Tijorat taklifi rejimi:
+#   mavjudlik (standart) - avval ombor mavjudlikni tasdiqlaydi (tugmalar), keyin mijozga PDF (narxsiz, "Omborda" ustuni)
+#   narx                 - ombor narx va qoldiqni kiritadi, taklif narx va to'lov sharti bilan (eski NARX_OMBORDAN=1)
+#   darhol               - ombor tekshiruvisiz darhol narxsiz PDF
+_eski_narx_rejimi = os.getenv("NARX_OMBORDAN", "0").strip().lower() in ("1", "true", "ha", "yes")
+TAKLIF_REJIMI = os.getenv("TAKLIF_REJIMI", "narx" if _eski_narx_rejimi else "mavjudlik").strip().lower()
+if TAKLIF_REJIMI not in ("mavjudlik", "narx", "darhol"):
+    TAKLIF_REJIMI = "mavjudlik"
+NARX_OMBORDAN = TAKLIF_REJIMI == "narx"
+OMBOR_ORQALI = TAKLIF_REJIMI in ("mavjudlik", "narx")
 
 # gpt-oss-120b - Groq production modeli (preview modellar istalgan vaqtda o'chirilishi mumkin),
 # sinovlarda tilni (lotin/kirill/rus) eng to'g'ri ushlagan model.
@@ -109,7 +118,7 @@ EGA_PAUZA_DAQIQA = int(os.getenv("EGA_PAUZA_DAQIQA", "5"))
 KEEPALIVE_ORALIQ = 10 * 60
 FON_TEKSHIRUV_ORALIQ = 5 * 60
 # Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
-SUHBAT_VERSIYASI = "umatic-savdo-1"
+SUHBAT_VERSIYASI = "umatic-savdo-2"
 TABIIY_MIN, TABIIY_MAX = 1.5, 3.5                                 # javob tezligi: juda tez ham emas (soniya)
 LIMIT_KUTISH = 15                                                # hamma modellar limitda bo'lsa, kutish (soniya)
 
@@ -131,8 +140,8 @@ csv_lock = asyncio.Lock()
 # =====================================================================
 
 BILIMLAR = ""
-KATALOG: dict[str, list[str]] = {}
-KATALOG_FAYLI = "04_katalog.md"
+KATALOG: dict[str, list[dict]] = {}
+KATALOG_FAYLI = "katalog.json"   # tools/katalog_yangilash.py yaratadi (umatic.uz dan)
 
 
 def _izohsiz(matn: str) -> str:
@@ -143,18 +152,22 @@ def _izohsiz(matn: str) -> str:
 def bilimlarni_yuklash() -> str:
     """
     bilimlar/*.md fayllarini o'qiydi (<!-- izohlar --> botga ko'rinmaydi).
-    Katalog (04_katalog.md) alohida yuklanadi: har so'rovga butun katalog emas, faqat mijozga mos qismi qo'shiladi.
+    Katalog (katalog.json, 104 ta mahsulot) alohida yuklanadi: har so'rovga faqat mijozga mos qismi qo'shiladi.
     """
     global KATALOG
     qismlar = []
     for yol in sorted(glob.glob(os.path.join(BILIMLAR_PAPKASI, "*.md"))):
         with open(yol, encoding="utf-8") as f:
             matn = _izohsiz(f.read())
-        if os.path.basename(yol) == KATALOG_FAYLI:
-            KATALOG = sotuv.katalogni_ajratish(matn)
-            continue
         if matn:
             qismlar.append(matn)
+    katalog_yoli = os.path.join(BILIMLAR_PAPKASI, KATALOG_FAYLI)
+    try:
+        with open(katalog_yoli, encoding="utf-8") as f:
+            KATALOG = sotuv.katalogni_tayyorlash(json.load(f))
+    except (OSError, ValueError) as e:
+        logging.error("Katalog yuklanmadi (%s): %s", katalog_yoli, e)
+        KATALOG = {}
     natija = "\n\n".join(qismlar)
     if not natija:
         logging.warning("Bilimlar bazasi bo'sh! %s papkasini tekshiring.", BILIMLAR_PAPKASI)
@@ -168,8 +181,9 @@ def bilimlarni_yuklash() -> str:
 
 # Suhbat tarixida taqdimot o'rniga saqlanadigan qisqa belgi (AI uchun yetarli, tokenni tejaydi)
 TAQDIMOT_BELGISI = (
-    "[Mijozga kompaniya taqdimoti yuborildi: UMATIC, rasmiy vakil; 4 tur dvigatel - umumsanoat AIR, "
-    "kran MTN/MTKN, portlashdan himoyalangan VA/VAO, sinxron SD/VDS; kVt va ob/min so'raldi]"
+    "[Mijozga taqdimot yuborildi: bot o'zini UMATIC AI savdo yordamchisi deb tanishtirdi; 3 yo'nalish - elektr dvigatellar "
+    "(АИР, МТН/МТКН, ВА/ВАО, СД/ВДС), nasos agregatlari (ЭЦВ, Д, К, Гном), elektroizolyatsiya (ПЭТВ-2 sim, o'ram "
+    "seksiyalari, kiper lenta, qo'lqoplar); parametrlar so'raldi]"
 )
 
 
@@ -188,26 +202,27 @@ def tanishtiruv_matni(til: str) -> str:
     return tmatn("start", til).format(kompaniya=KOMPANIYA_NOMI)
 
 
-def tizim_korsatmasi(katalog: str = "") -> str:
+def tizim_korsatmasi(katalog: str = "", tafsilot: str = "") -> str:
     # Ixcham yozilgan: Groq bepul tarifida bitta so'rov 7000 tokendan oshmasligi kerak
-    return f"""Sen "{KOMPANIYA_NOMI}" kompaniyasining Telegramdagi AI savdo menejerisan. Kompaniya ELEKTR DVIGATELLAR sotadi.
-Vazifang: dvigatellarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sotuvga olib borish, CRM uchun ma'lumot yig'ish.
+    return f"""Sen "{KOMPANIYA_NOMI}" kompaniyasining Telegramdagi AI savdo menejerisan. Kompaniya 3 yo'nalishda sotadi: ELEKTR DVIGATELLAR, NASOS AGREGATLARI, ELEKTROIZOLYATSIYA MATERIALLARI (emal sim, stator o'ram seksiyalari, kiper lenta, ish qo'lqoplari).
+Vazifang: mahsulotlarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sotuvga olib borish, CRM uchun ma'lumot yig'ish.
 
 QOIDALAR:
 1. Mijoz yozgan til va yozuvda javob ber (o'zbek lotin / o'zbek kirill / rus).
-2. Faqat BILIMLARdagi faktlar. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - mavjudlikni menejer aytadi. O'zingcha hisoblab model tavsiya qilma.
+2. Faqat BILIMLARdagi faktlar. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - omborda borligini ombor tasdiqlaydi. Saytdagi 3 yo'nalishning birortasini "sotmaymiz" dema. O'zingcha hisoblab model tavsiya qilma.
 3. {_narx_qoidasi()}
 4. FAOL SOTUVCHI BO'L, quruq so'roq qilma:
- - aniq ehtiyoj aytilmasa - mos dvigatel turlarini qisqa tanishtir va qaysi biri kerakligini so'ra;
- - kVt/ob/min aytilsa - KATALOGdan mos modelni nomi va xususiyatlari bilan darhol taklif qil ("katalogimizda ... bor");
- - mexanizm aytilsa (nasos, kran, konveyer, kompressor, shaxta) - mos turni va foydasini ayt;
+ - aniq ehtiyoj aytilmasa - 3 yo'nalishni va mos turlarni qisqa tanishtir, nima kerakligini so'ra;
+ - parametr aytilsa (dvigatel: kVt, ob/min; nasos: sarf m³/soat, napor m; sim: diametr) - KATALOGdan mos modelni nomi va xususiyatlari bilan darhol taklif qil;
+ - mexanizm yoki vazifa aytilsa (kran, konveyer, quduq, drenaj, shaxta, o'ram) - mos turni va foydasini ayt;
  - har javobda bitta foyda (original, muhandislik tanlovi, KPD/energiya tejash, to'xtab qolmaslik) va keyingi qadamga savol.
 5. Javob 2-4 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
-6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. kVt, ob/min va miqdor ma'lum bo'lsa narx_sorash=true.
-7. Sen AI yordamchisan, odam ekanligingni da'vo qilma. Rasm/faylni ko'ra olmaysan - u menejerga yuborilgan.
+6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. Asosiy parametrlar va miqdor ma'lum bo'lsa narx_sorash=true.
+6b. Model va seriya nomlarini KATALOGDAGIDEK kirill harflarida yoz (АИР132М4У1, МТН 411-8, ЭЦВ 8-25-100, ПЭТВ-2) - hech qachon lotinga o'girma.
+6c. Texnik savolga TAFSILOT bo'limidagi ma'lumot bilan to'liq javob ber (tok, vazn, val, KPD...), kerak bo'lsa mahsulot sahifasi havolasini ber.
+7. Sen AI yordamchisan, odam ekanligingni da'vo qilma; "kimsiz?" desa - UMATIC ning AI savdo yordamchisi ekaningni ayt. Mijoz rasm so'rasa - katalog rasmi javobingdan keyin avtomatik yuboriladi (JORIY HOLATda ko'rsatiladi): "tizim" so'zini ishlatma, qisqa "mana, rasmi" mazmunida ayt. Mijoz yuborgan rasmni ko'ra olmaysan - u menejerga yuborilgan.
 7a. "(Menejer yozdi)" bilan boshlangan xabarlarni jonli menejer yozgan: ularga zid gapirma, uning aytganlarini davom ettir, bu belgini o'zing yozma.
-8. Boshqa mahsulot (nasos va h.k.) so'ralsa - hozircha faqat dvigatellar bilan ishlashimizni ayt, menejer_kerak=true.
-8a. Har qanday savolga O'ZING to'liq javob ber (bilimlar va katalog asosida) va ehtiyojga qarab aniq dvigatel tavsiya qil. "Menejer siz bilan bog'lanadi" deb FAQAT narx, chegirma, omborda borligi yoki yetkazib berish so'ralganda ayt - butun suhbatda ko'pi bilan 1 marta. Texnik va umumiy savollarni menejerga yo'naltirma.
+8a. Har qanday savolga O'ZING to'liq javob ber (bilimlar va katalog asosida) va ehtiyojga qarab aniq mahsulot tavsiya qil. "Menejer siz bilan bog'lanadi" deb FAQAT narx, chegirma, omborda borligi yoki yetkazib berish so'ralganda ayt - butun suhbatda ko'pi bilan 1 marta. Texnik va umumiy savollarni menejerga yo'naltirma.
 9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
 10. buyurtma_tasdiqlandi=true faqat mijoz yuborilgan taklifni aniq qabul qilsa.
 
@@ -217,8 +232,8 @@ Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, 
 BILIMLAR:
 {BILIMLAR}
 
-KATALOG (umatic.uz; format: model | kVt | ob/min | V | IP | KPD):
-{katalog or "Mijoz quvvat (kVt) yoki tur (kran, portlashdan himoyalangan, sinxron, umumsanoat) aytganda mos modellar shu yerda beriladi. Hozircha turlarni va quvvat oraliqlarini tanishtir."}"""
+KATALOG (umatic.uz; dvigatel: model | kVt | ob/min | V | IP | KPD; nasos: model | sarf | napor | kVt | ob/min):
+{katalog or "Mijoz parametr yoki tur aytganda mos modellar shu yerda beriladi. Hozircha yo'nalishlarni va turlarni tanishtir."}{chr(10) + chr(10) + "TAFSILOT (mijoz tilga olgan modellar, to'liq texnik ma'lumot):" + chr(10) + tafsilot if tafsilot else ""}"""
 
 
 def _narx_qoidasi() -> str:
@@ -226,6 +241,12 @@ def _narx_qoidasi() -> str:
         return (
             "NARX AYTMA - narxni ombor tasdiqlaydi; pozitsiya va miqdor aniq bo'lsa narx_sorash=true qil. "
             f"Yuborilgan taklifdagi raqamlarnigina aytish mumkin. {sotuv.tolov_sharti_matni()}"
+        )
+    if TAKLIF_REJIMI == "mavjudlik":
+        return (
+            "NARX AYTMA (hech qanday raqam yoki oraliq). Narxni menejer bildiradi. narx_sorash=true bo'lsa tizim avval "
+            "OMBORDA MAVJUDLIGINI tekshiradi, ombor tasdiqlagach mijozga PDF tijorat taklifi yuboriladi - buni qisqa ayt "
+            "mijoz tilida, boshqa tildagi so'z aralashtirmasdan."
         )
     return (
         "NARX AYTMA (hech qanday raqam yoki oraliq). Narxni menejer bildiradi. narx_sorash=true bo'lsa tizim "
@@ -257,8 +278,9 @@ def holat_matni(holat: dict, birinchi: bool, til: str = "uz_latn") -> str:
     qatorlar.append("- Bu suhbatdagi BIRINCHI javob." if birinchi else "- Suhbat davom etmoqda, salomlashma.")
     faol = holat.get("faol")
     if faol:
+        tur = "mavjudlik" if TAKLIF_REJIMI == "mavjudlik" else "narx"
         qatorlar.append(
-            f"- Omborga narx so'rovi #{faol['id']} yuborilgan, javob kutilmoqda: "
+            f"- Omborga {tur} so'rovi #{faol['id']} yuborilgan, javob kutilmoqda: "
             f"{_pozitsiyalar_qisqa(json.loads(faol['pozitsiyalar']))}. Pozitsiyalar o'zgarmasa, qayta so'rov shart emas."
         )
     taklif = holat.get("taklif")
@@ -282,6 +304,7 @@ def holat_matni(holat: dict, birinchi: bool, til: str = "uz_latn") -> str:
         )
     if not faol and not taklif:
         qatorlar.append("- Hali tijorat taklifi yuborilmagan. Narx aytma.")
+    qatorlar += [f"- {q}" for q in holat.get("qoshimcha", [])]
     return "\n".join(qatorlar)
 
 
@@ -449,6 +472,59 @@ def tabiiy_kutish(matn: str, boshlangan: float) -> float:
     return max(0.0, maqsad - (asyncio.get_running_loop().time() - boshlangan))
 
 
+_RASM_KESH: dict[str, bytes] = {}
+
+
+async def _rasmni_yuklash(url: str) -> bytes | None:
+    """Katalog rasmini yuklab, Telegram uchun JPEG ga o'giradi (sayt webp beradi). Natija keshlanadi."""
+    if url in _RASM_KESH:
+        return _RASM_KESH[url]
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200:
+                    return None
+                xom = await resp.read()
+
+        def _jpeg(b: bytes) -> bytes:
+            from io import BytesIO
+            from PIL import Image
+            rasm = Image.open(BytesIO(b)).convert("RGB")
+            chiqish = BytesIO()
+            rasm.save(chiqish, format="JPEG", quality=88)
+            return chiqish.getvalue()
+
+        jpeg = await asyncio.to_thread(_jpeg, xom)
+        if len(_RASM_KESH) < 60:
+            _RASM_KESH[url] = jpeg
+        return jpeg
+    except Exception as e:
+        logging.warning("Rasmni yuklab bo'lmadi (%s): %s", url, e)
+        return None
+
+
+async def rasm_yuborish(chat_id: int, bcid: str | None, mahsulot: dict, til: str) -> bool:
+    """Katalogdagi mahsulot rasmini qisqa texnik ma'lumot va sayt havolasi bilan yuboradi."""
+    if not mahsulot.get("rasm"):
+        return False
+    jpeg = await _rasmni_yuklash(mahsulot["rasm"])
+    if not jpeg:
+        return False
+    izoh = f"{mahsulot['model']}\n{mahsulot.get('_qator', '').split(' | ', 1)[-1]}\n{mahsulot['url']}"
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=types.BufferedInputFile(jpeg, filename=f"{sotuv.model_kaliti(mahsulot['model'])}.jpg"),
+            caption=qisqartir(izoh, 1000),
+            business_connection_id=bcid or None,
+        )
+        await asyncio.to_thread(db.add_message, chat_id, "assistant", f"[Rasm yuborildi: {mahsulot['model']}]")
+        return True
+    except TelegramAPIError as e:
+        logging.warning("Rasmni yuborib bo'lmadi (chat %s): %s", chat_id, e)
+        return False
+
+
 async def javob_yubor(message: types.Message, matn: str, is_business: bool = True):
     """Mijozga kelgan xabar kanali orqali javob yuboradi."""
     bcid = message.business_connection_id if is_business else None
@@ -554,8 +630,11 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     # Katalogdan faqat mijoz so'roviga mos qism (token tejash -> limitga kamroq urilish -> tezroq javob)
     mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
     katalog = sotuv.katalog_tanlash(KATALOG, mijoz_matni)
+    # Mijoz (yoki bot oxirgi javobida) tilga olingan aniq modellar - to'liq texnik ma'lumot
+    oxirgi_xabarlar = " ".join(m["content"] for m in tarix[-3:])
+    tafsilot = "\n".join(sotuv.tafsilot_matni(m) for m in sotuv.topilgan_modellar(KATALOG, oxirgi_xabarlar, limit=2))
     messages = (
-        [{"role": "system", "content": tizim_korsatmasi(katalog)}]
+        [{"role": "system", "content": tizim_korsatmasi(katalog, tafsilot)}]
         + tarix
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
@@ -834,7 +913,7 @@ async def crm_yangilash(chat_id: int, mijoz: types.User, natija: dict, holat: di
 
     # Pozitsiya va miqdor aniq bo'lsa: omborga narx so'rovi yoki mijozga narxsiz PDF taklif
     if natija["narx_sorash"] and pozitsiyalar and all(p["miqdor"] > 0 for p in pozitsiyalar):
-        if NARX_OMBORDAN:
+        if OMBOR_ORQALI:
             await narx_sorovi_yaratish(chat_id, mijoz, natija, business_connection_id)
         else:
             await pdf_taklif_yuborish(chat_id, mijoz, natija, business_connection_id, ega_id)
@@ -867,6 +946,56 @@ async def crm_yangilash(chat_id: int, mijoz: types.User, natija: dict, holat: di
 # =====================================================================
 #  NARXSIZ PDF TIJORAT TAKLIFI (NARX_OMBORDAN=0)
 # =====================================================================
+
+async def pdf_yuborish(sorov_id: int, chat_id: int, bcid: str | None, til: str, pozitsiyalar: list[dict],
+                      ism: str, kompaniya: str, telefon: str, ega_id: int | None,
+                      mavjudlik: list[int] | None = None, izoh_qoshimcha: str = "") -> bool:
+    """
+    UMATIC shablonidagi PDF tijorat taklifini mijozga yuboradi va nusxasini egalarga yuboradi.
+    So'rov holati "yuborildi" bo'ladi. Qaytaradi: mijozga yuborildimi.
+    """
+    raqam = taklif_pdf.taklif_raqami(sorov_id)
+    predmet = tmatn("taklif_predmeti", til).format(soni=len(pozitsiyalar))
+    try:
+        pdf = await asyncio.to_thread(taklif_pdf.taklif_pdf, sorov_id, til, pozitsiyalar, ism, kompaniya, telefon,
+                                      predmet, None, mavjudlik)
+    except Exception as e:
+        logging.exception("Taklif PDF yaratishda xato: %s", e)
+        return False
+    fayl_nomi = taklif_pdf.fayl_nomi(sorov_id, til)
+    izoh = tmatn("taklif_izoh", til).format(raqam=raqam) + (f"\n{izoh_qoshimcha}" if izoh_qoshimcha else "")
+    try:
+        await bot.send_document(chat_id=chat_id, document=types.BufferedInputFile(pdf, filename=fayl_nomi),
+                                caption=izoh, business_connection_id=bcid or None)
+        yuborildi = True
+    except TelegramAPIError as e:
+        logging.error("Taklif PDF ni mijozga yuborib bo'lmadi (chat %s): %s", chat_id, e)
+        yuborildi = False
+
+    lead = await asyncio.to_thread(db.get_lead, chat_id)
+    if yuborildi:
+        await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, db.FAOL_SOROV_HOLATLARI + ("yuborilmoqda",), "yuborildi")
+        await asyncio.to_thread(db.update_sorov, sorov_id, yuborilgan_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        await asyncio.to_thread(db.add_message, chat_id, "assistant", f"[PDF: {raqam}] {izoh}")
+        await asyncio.to_thread(db.upsert_lead, chat_id, bosqich=sotuv.bosqichni_birlashtirish(
+            lead["bosqich"] if lead else "", "taklif_berildi"))
+        sarlavha = f"📄 <b>TIJORAT TAKLIFI {raqam} MIJOZGA YUBORILDI</b>"
+        keyingi = "➡️ Mijozga narxni bildiring."
+    else:
+        sarlavha = f"⚠️ <b>TAKLIF {raqam} MIJOZGA YUBORILMADI</b>"
+        keyingi = "➡️ Faylni mijozga o'zingiz yuboring (Telegram Business: mijoz oxirgi 24 soatda yozgan bo'lishi kerak)."
+
+    sheets = await crmga_sinxronlash(chat_id)
+    lead = await asyncio.to_thread(db.get_lead, chat_id)
+    matn = (lead_kartochkasi(lead, sarlavha) if lead else sarlavha) + f"\n\n{keyingi}\n<i>{_sheets_matni(sheets)}</i>"
+    for target in await asyncio.to_thread(hisobot_oluvchilar, ega_id):
+        try:
+            await bot.send_document(chat_id=target, document=types.BufferedInputFile(pdf, filename=fayl_nomi),
+                                    caption=qisqartir(matn, 1000), parse_mode="HTML")
+        except Exception as e:
+            logging.warning("Taklif nusxasini egaga (%s) yuborib bo'lmadi: %s", target, e)
+    return yuborildi
+
 
 async def pdf_taklif_yuborish(chat_id: int, mijoz: types.User, natija: dict,
                               business_connection_id: str | None, ega_id: int | None):
@@ -952,6 +1081,11 @@ def _tugma(matn: str, data: str) -> types.InlineKeyboardButton:
 
 
 def sorov_tugmalari(sorov_id: int) -> types.InlineKeyboardMarkup:
+    if TAKLIF_REJIMI == "mavjudlik":
+        return types.InlineKeyboardMarkup(inline_keyboard=[
+            [_tugma("✅ Hammasi bor", f"s:hb:{sorov_id}"), _tugma("✏️ Sonini kiritish", f"s:n:{sorov_id}")],
+            [_tugma("❌ Omborda yo'q", f"s:y:{sorov_id}")],
+        ])
     return types.InlineKeyboardMarkup(inline_keyboard=[[
         _tugma("💰 Narx kiritish", f"s:n:{sorov_id}"),
         _tugma("❌ Omborda yo'q", f"s:y:{sorov_id}"),
@@ -959,7 +1093,8 @@ def sorov_tugmalari(sorov_id: int) -> types.InlineKeyboardMarkup:
 
 
 def sorov_matni(sorov_id: int, pozitsiyalar: list[dict], lead, til: str, ehtiyoj: str) -> str:
-    qatorlar = [f"🆕 <b>NARX SO'ROVI #{sorov_id}</b>"]
+    sarlavha = "📦 <b>MAVJUDLIK SO'ROVI" if TAKLIF_REJIMI == "mavjudlik" else "🆕 <b>NARX SO'ROVI"
+    qatorlar = [f"{sarlavha} #{sorov_id}</b>"]
     if lead:
         qatorlar.append(
             f"👤 {mijoz_havolasi(lead['telegram_id'], lead['full_name'], lead['username'] or '')}"
@@ -973,7 +1108,10 @@ def sorov_matni(sorov_id: int, pozitsiyalar: list[dict], lead, til: str, ehtiyoj
             qatorlar.append(f"    ⚙️ {h(p['parametrlar'])}")
     if ehtiyoj:
         qatorlar.append(f"\n🎯 {h(qisqartir(ehtiyoj, 300))}")
-    qatorlar.append("\nNarx va mavjudlikni kiriting 👇")
+    qatorlar.append(
+        "\nOmborda bor-yo'qligini belgilang 👇 (tasdiqlagach mijozga PDF taklif ketadi)" if TAKLIF_REJIMI == "mavjudlik"
+        else "\nNarx va mavjudlikni kiriting 👇"
+    )
     return "\n".join(qatorlar)
 
 
@@ -1027,6 +1165,15 @@ def _narx_kiritish_korsatmasi(sorov_id: int, pozitsiyalar: list[dict], xato: str
     qatorlar = []
     if xato:
         qatorlar.append(f"⚠️ {xato}\n")
+    if TAKLIF_REJIMI == "mavjudlik":
+        qatorlar.append(f"✍️ So'rov #{sorov_id}: SHU XABARGA JAVOB (reply) qilib, har bir pozitsiya uchun omborda NECHTA borligini yozing:\n")
+        for i, p in enumerate(pozitsiyalar, 1):
+            qatorlar.append(f"{i}) {h(p['nomi'])} — so'ralgan {p['miqdor']} {h(p['birlik'])}")
+        qatorlar.append(
+            "\nMasalan:\n<code>3</code>\n<code>yo'q</code>  ← omborda yo'q\n"
+            "<code>izoh: 2 kunda tayyor bo'ladi</code>  ← ixtiyoriy, mijozga ko'rinadi"
+        )
+        return "\n".join(qatorlar)
     qatorlar.append(f"✍️ So'rov #{sorov_id}: SHU XABARGA JAVOB (reply) qilib, har bir pozitsiya uchun bitta qator yozing:")
     qatorlar.append("<code>1 dona narxi ; omborda nechta bor</code>\n")
     for i, p in enumerate(pozitsiyalar, 1):
@@ -1047,7 +1194,7 @@ async def narx_kiritishni_sorash(chat_id: int, sorov, xato: str = "", reply_to: 
         text=_narx_kiritish_korsatmasi(sorov["id"], pozitsiyalar, xato),
         parse_mode="HTML",
         reply_to_message_id=reply_to,
-        reply_markup=types.ForceReply(selective=True, input_field_placeholder="12 500 000 ; 3"),
+        reply_markup=types.ForceReply(selective=True, input_field_placeholder="3" if TAKLIF_REJIMI == "mavjudlik" else "12 500 000 ; 3"),
     )
     await asyncio.to_thread(db.update_sorov, sorov["id"], prompt_msg_id=msg.message_id, sklad_chat_id=chat_id)
 
@@ -1096,6 +1243,15 @@ async def ombor_tugmasi(callback: types.CallbackQuery):
             await _sklad_xabarini_belgilash(callback, f"✏️ Qayta kiritilmoqda ({kim})")
         await callback.answer()
 
+    elif amal == "hb":  # Mavjudlik rejimi: hammasi bor - tasdiqlash uchun ko'rsatish
+        if not await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, db.FAOL_SOROV_HOLATLARI, "tasdiq_kutilmoqda"):
+            await callback.answer(f"So'rov #{sorov_id} allaqachon yakunlangan ({sorov['holat']})", show_alert=True)
+            return
+        narxlar = [{"narx": 0, "mavjud": p["miqdor"]} for p in pozitsiyalar]
+        await asyncio.to_thread(db.update_sorov, sorov_id, narxlar=json.dumps(narxlar), ombor_izohi="")
+        await _mavjudlik_tasdiq_sorash(callback.message, sorov_id, pozitsiyalar, narxlar)
+        await callback.answer()
+
     elif amal == "y":  # Omborda yo'q - tasdiq so'rash (tasodifiy bosishdan himoya)
         await callback.message.edit_reply_markup(reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[
             _tugma("✅ Ha, mijozga aytish", f"s:yh:{sorov_id}"),
@@ -1126,6 +1282,32 @@ async def ombor_tugmasi(callback: types.CallbackQuery):
                 + "\n\n➡️ Mijozga muqobil variant yoki buyurtma asosida yetkazib berishni taklif qiling."
             )
         await callback.answer()
+
+    elif amal == "ok" and TAKLIF_REJIMI == "mavjudlik":  # Ombor tasdiqladi - PDF taklif mijozga
+        if not await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("tasdiq_kutilmoqda",), "yuborilmoqda"):
+            await callback.answer("So'rov allaqachon yuborilgan yoki o'zgargan", show_alert=True)
+            return
+        await callback.answer("Yuborilmoqda...")
+        mavjudlar = [n.get("mavjud", 0) for n in json.loads(sorov["narxlar"] or "[]")]
+        lead = await asyncio.to_thread(db.get_lead, sorov["chat_id"])
+        async with chat_locks[sorov["chat_id"]]:
+            if not any(mavjudlar):
+                await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("yuborilmoqda",), "yoq")
+                xabar = tmatn("hech_yoq", sorov["til"] or "uz_latn")
+                if await mijozga_yuborish(sorov["chat_id"], sorov["business_connection_id"], xabar) is None:
+                    await asyncio.to_thread(db.add_message, sorov["chat_id"], "assistant", xabar)
+                await _sklad_xabarini_belgilash(callback, f"❌ Hech biri omborda yo'q — mijozga xabar berildi ({kim})")
+                return
+            yuborildi = await pdf_yuborish(
+                sorov_id, sorov["chat_id"], sorov["business_connection_id"], sorov["til"] or "uz_latn", pozitsiyalar,
+                lead["full_name"] if lead else "", (lead["tashkilot"] or "") if lead else "", (lead["telefon"] or "") if lead else "",
+                None, mavjudlik=mavjudlar, izoh_qoshimcha=sorov["ombor_izohi"] or "",
+            )
+        if yuborildi:
+            await _sklad_xabarini_belgilash(callback, f"✅ PDF taklif mijozga yuborildi ({kim})")
+        else:
+            await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("yuborilmoqda",), "tasdiq_kutilmoqda")
+            await callback.message.reply("⚠️ Mijozga yuborib bo'lmadi. Keyinroq «✅ Mijozga yuborish» ni qayta bosing yoki mijozga o'zingiz yozing.")
 
     elif amal == "ok":  # Tijorat taklifini mijozga yuborish
         if not await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("tasdiq_kutilmoqda",), "yuborilmoqda"):
@@ -1165,6 +1347,19 @@ async def ombor_tugmasi(callback: types.CallbackQuery):
         await callback.answer()
 
 
+async def _mavjudlik_tasdiq_sorash(xabar, sorov_id: int, pozitsiyalar: list[dict], narxlar: list[dict]):
+    """Ombor mas'uliga: mijozga yuboriladigan mavjudlikni ko'rsatish va tasdiqlash tugmalari."""
+    await xabar.reply(
+        f"👀 <b>Tekshiring — so'rov #{sorov_id}</b>\n\n{h(sotuv.mavjudlik_korinishi(pozitsiyalar, narxlar))}\n\n"
+        "Tasdiqlasangiz, mijozga PDF tijorat taklifi («Omborda» ustuni bilan) yuboriladi.",
+        parse_mode="HTML",
+        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[
+            _tugma("✅ Mijozga yuborish", f"s:ok:{sorov_id}"),
+            _tugma("✏️ Qayta kiritish", f"s:q:{sorov_id}"),
+        ]]),
+    )
+
+
 _PROMPT_REGEX = re.compile(r"So'rov #(\d+): SHU XABARGA JAVOB")
 
 
@@ -1198,13 +1393,21 @@ async def ombor_narx_javobi(message: types.Message, sorov):
 
     pozitsiyalar = json.loads(sorov["pozitsiyalar"])
     try:
-        javob = sotuv.ombor_javobini_tahlil(message.text, pozitsiyalar)
+        if TAKLIF_REJIMI == "mavjudlik":
+            javob = sotuv.ombor_mavjudlik_tahlil(message.text, pozitsiyalar)
+        else:
+            javob = sotuv.ombor_javobini_tahlil(message.text, pozitsiyalar)
     except ValueError as e:
         await narx_kiritishni_sorash(message.chat.id, sorov, xato=str(e), reply_to=message.message_id)
         return
 
     if not await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov["id"], ("narx_kiritilmoqda",), "tasdiq_kutilmoqda"):
         await message.reply("So'rov holati o'zgargan, qayta urinib ko'ring.")
+        return
+
+    if TAKLIF_REJIMI == "mavjudlik":
+        await asyncio.to_thread(db.update_sorov, sorov["id"], narxlar=json.dumps(javob.narxlar), ombor_izohi=javob.izoh)
+        await _mavjudlik_tasdiq_sorash(message, sorov["id"], pozitsiyalar, javob.narxlar)
         return
 
     taklif, jami = sotuv.taklif_matni(sorov["id"], pozitsiyalar, javob.narxlar, sorov["til"], javob.izoh)
@@ -1390,10 +1593,14 @@ async def help_komandasi(message: types.Message):
         f"💡 <b>{h(KOMPANIYA_NOMI)} savdo boti qo'llanmasi</b>\n\n"
         "1. Mijoz yozadi (Telegram Business yoki botning o'zi) — bot mahsulotni tanishtiradi va ehtiyojni aniqlaydi.\n"
         + (
+            "2. Pozitsiya va miqdor aniq bo'lgach, ombor chatiga <b>MAVJUDLIK SO'ROVI</b> keladi.\n"
+            "3. Ombor mas'uli «✅ Hammasi bor» yoki «✏️ Sonini kiritish» ni bosadi.\n"
+            "4. «✅ Mijozga yuborish» bosilgach, mijozga PDF taklif («Omborda» ustuni bilan) ketadi.\n"
+            if TAKLIF_REJIMI == "mavjudlik" else
             "2. Pozitsiya va miqdor aniq bo'lgach, ombor chatiga <b>NARX SO'ROVI</b> keladi.\n"
             "3. Ombor mas'uli «💰 Narx kiritish» ni bosib, narx va qoldiqni yozadi.\n"
             "4. Bot jami summa va to'lov shartini o'zi hisoblab ko'rsatadi — «✅ Mijozga yuborish» bosilgach, taklif mijozga ketadi.\n"
-            if NARX_OMBORDAN else
+            if TAKLIF_REJIMI == "narx" else
             "2. Pozitsiya va miqdor aniq bo'lgach, bot mijozga <b>narxsiz tijorat taklifini (PDF)</b> yuboradi.\n"
             "3. Taklif nusxasi sizga ham keladi — mijozga narxni o'zingiz bildirasiz.\n"
             "4. Bot hech qachon narx aytmaydi.\n"
@@ -1513,7 +1720,15 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
         # Mijoz tilini dastur aniqlaydi (AI ga ishonib qolinmaydi): javob va taklif shu tilda bo'ladi
         meta = await asyncio.to_thread(db.get_chat_meta, chat_id)
-        til = sotuv.tilni_aniqlash(xabar_matni, meta["til"] if meta else "")
+        sorangan_til = sotuv.til_sorovi(xabar_matni)
+        if sorangan_til:
+            # Mijoz tilni o'zi tanladi - keyingi xabarlarda ham shu tilda (u boshqa tilda yozsa ham)
+            await asyncio.to_thread(db.til_tanlovini_saqlash, chat_id, sorangan_til)
+            til = sorangan_til
+        elif meta and meta["til_tanlov"]:
+            til = meta["til_tanlov"]
+        else:
+            til = sotuv.tilni_aniqlash(xabar_matni, meta["til"] if meta else "")
 
         await asyncio.to_thread(db.add_message, chat_id, "user", xabar_matni)
         await asyncio.to_thread(db.save_chat_meta, chat_id, message.from_user.id, bcid, til)
@@ -1536,6 +1751,18 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
         holat = await asyncio.to_thread(suhbat_holati, chat_id)
         boshlangan = asyncio.get_running_loop().time()
+
+        # Mijoz rasm so'radimi? Model shu xabarda yoki botning oxirgi javobida bo'lsa - katalog rasmi yuboriladi
+        rasm_modellari = []
+        if sotuv.rasm_soraldimi(xabar_matni):
+            oldingi_bot = next((m["content"] for m in reversed(tarix[:-1]) if m.get("role") == "assistant"), "")
+            rasm_modellari = (sotuv.topilgan_modellar(KATALOG, xabar_matni)
+                              or sotuv.topilgan_modellar(KATALOG, oldingi_bot))
+            holat["qoshimcha"] = [
+                f"Javobingdan keyin mijozga quyidagi modellar rasmi avtomatik yuboriladi: {', '.join(m['model'] for m in rasm_modellari)}."
+                if rasm_modellari else
+                "Mijoz rasm so'radi, lekin qaysi model ekani aniq emas - qaysi modelning rasmini ko'rsatishni so'ra."
+            ]
 
         try:
             async with YozmoqdaHolati(chat_id, bcid):
@@ -1560,6 +1787,10 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             return
 
         javob = re.sub(r"^\s*\(Menejer yozdi\)\s*", "", natija["javob"])
+        javob = sotuv.atamalarni_tuzatish(sotuv.model_nomlarini_tuzatish(javob, KATALOG))
+        for poz in natija["mahsulotlar"]:  # PDF va CRM ga ham to'g'ri nom
+            poz["nomi"] = sotuv.model_nomlarini_tuzatish(poz["nomi"], KATALOG)
+            poz["parametrlar"] = sotuv.model_nomlarini_tuzatish(poz["parametrlar"], KATALOG)
         javob = sotuv.salomni_moslash(javob, natija["_birinchi"], til)
         if taqdimot_hozir and sotuv.taqdimotni_takrorlaydimi(javob, tanishtiruv_matni(til)) and not natija["narx_sorash"]:
             logging.info("AI javobi taqdimotni takrorlaydi - yuborilmadi (chat %s).", chat_id)
@@ -1575,7 +1806,8 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             kalit = sotuv.mahsulotlar_kaliti(natija["mahsulotlar"])
             if kalit not in [r["kalit"] for r in (holat.get("faol"), holat.get("taklif")) if r]:
                 natija["narx_sorash"] = True
-                javob = f"{javob}\n\n{tmatn('kutish' if NARX_OMBORDAN else 'taklif_tayyorlanmoqda', til)}"
+                kalit_matn = {"narx": "kutish", "mavjudlik": "mavjudlik_tekshirilmoqda"}.get(TAKLIF_REJIMI, "taklif_tayyorlanmoqda")
+                javob = f"{javob}\n\n{tmatn(kalit_matn, til)}"
         # Suhbatda allaqachon minnatdorchilik bildirilgan bo'lsa - har javobda "Rahmat" takrorlanmaydi
         oldin_rahmat = any(m["role"] == "assistant" and sotuv.rahmat_aytilganmi(m["content"]) for m in tarix)
         javob = sotuv.takroriy_rahmatni_olib_tashlash(javob, oldin_rahmat, natija["mijoz"]["ism"])
@@ -1588,6 +1820,8 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         if xato:
             return
         await asyncio.to_thread(db.add_message, chat_id, "assistant", javob)
+        for m in rasm_modellari:
+            await rasm_yuborish(chat_id, bcid, m, til)
 
         await crm_yangilash_xavfsiz(chat_id, message.from_user, natija, holat, xabar_matni, bcid, ega_id)
 
@@ -1620,7 +1854,7 @@ async def fon_tekshiruvlari():
     """Ombor javob bermagan so'rovlar va javobsiz qolgan takliflar haqida eslatadi."""
     for s in await asyncio.to_thread(db.get_eslatiladigan_sorovlar, SKLAD_ESLATMA_DAQIQA):
         await asyncio.to_thread(db.update_sorov, s["id"], eslatildi=1)
-        matn = f"⏰ <b>Narx so'rovi #{s['id']}</b> ga {SKLAD_ESLATMA_DAQIQA} daqiqadan beri javob berilmadi — mijoz kutmoqda!"
+        matn = f"⏰ <b>So'rov #{s['id']}</b> ga {SKLAD_ESLATMA_DAQIQA} daqiqadan beri javob berilmadi — mijoz kutmoqda!"
         for target in ([s["sklad_chat_id"]] if s["sklad_chat_id"] else ombor_chatlari()):
             try:
                 await bot.send_message(chat_id=target, text=matn, parse_mode="HTML",

@@ -47,19 +47,23 @@ MATNLAR = {
         "kimga": "Kimga:",
         "aloqa": "Aloqa:",
         "sarlavha": "TIJORAT TAKLIFI",
-        "tagsarlavha": "elektr dvigatellarni yetkazib berish bo‘yicha",
+        "tagsarlavha": "tovarlar / uskunalar yetkazib berish bo‘yicha",
         "hurmatli": "Hurmatli {ism}!",
         "hurmatli_umumiy": "Hurmatli mijoz!",
         "kirish": (
             "“UMATIC” MChJ qo‘shma korxonasi kompaniyamizga bildirgan qiziqishingiz uchun minnatdorlik bildiradi "
-            "va elektr dvigatellarni yetkazib berish bo‘yicha hamkorlik imkoniyatini ko‘rib chiqishni taklif etadi. "
+            "va uskunalar hamda materiallarni yetkazib berish bo‘yicha hamkorlik imkoniyatini ko‘rib chiqishni taklif etadi. "
             "Biz Sizning texnik talablaringiz, byudjetingiz va loyiha muddatlaringizga mos yechimni tayyorlashga tayyormiz."
         ),
         "predmet": "Taklif predmeti:",
         "shartlar": "TIJORAT SHARTLARI",
         "ustunlar": ["№", "Tovar / xizmat", "Miqdori", "Narxi"],
+        "ustunlar_mavjud": ["№", "Tovar / xizmat", "Miqdori", "Omborda", "Narxi"],
+        "bor": "{n} {birlik} bor",
+        "yoq": "hozircha yo‘q",
         "narx": "So‘rov bo‘yicha",
         "izoh": "* Narx va mavjudlik ombor ma’lumotlari asosida alohida taqdim etiladi.",
+        "izoh_mavjud": "* Mavjudlik ombor tomonidan tasdiqlangan. Narx alohida taqdim etiladi.",
         "yakun": (
             "Zaruratga ko‘ra texnik qismni tezkor aniqlashtirish, spetsifikatsiyani tayyorlash va loyihangiz uchun "
             "maqbul shartlarni taklif etishga tayyormiz."
@@ -76,19 +80,23 @@ MATNLAR = {
         "kimga": "Кому:",
         "aloqa": "Контакт:",
         "sarlavha": "КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ",
-        "tagsarlavha": "на поставку электродвигателей",
+        "tagsarlavha": "на поставку товаров / оборудования",
         "hurmatli": "Уважаемый(ая) {ism}!",
         "hurmatli_umumiy": "Уважаемый клиент!",
         "kirish": (
             "СП ООО «UMATIC» благодарит Вас за интерес к нашей компании и предлагает рассмотреть возможность "
-            "сотрудничества по поставке электродвигателей. Мы готовы сформировать решение под Ваши технические "
+            "сотрудничества по поставке оборудования и материалов. Мы готовы сформировать решение под Ваши технические "
             "требования, бюджет и сроки реализации проекта."
         ),
         "predmet": "Предмет предложения:",
         "shartlar": "КОММЕРЧЕСКИЕ УСЛОВИЯ",
         "ustunlar": ["№", "Товар / услуга", "Кол-во", "Цена"],
+        "ustunlar_mavjud": ["№", "Товар / услуга", "Кол-во", "На складе", "Цена"],
+        "bor": "есть {n} {birlik}",
+        "yoq": "пока нет",
         "narx": "По запросу",
         "izoh": "* Цена и наличие предоставляются отдельно по данным склада.",
+        "izoh_mavjud": "* Наличие подтверждено складом. Цена предоставляется отдельно.",
         "yakun": (
             "При необходимости мы готовы оперативно уточнить техническую часть, подготовить спецификацию "
             "и предложить оптимальные условия под Ваш проект."
@@ -156,8 +164,12 @@ def taklif_pdf(
     telefon: str = "",
     predmet: str = "",
     sana: datetime | None = None,
+    mavjudlik: list[int] | None = None,
 ) -> bytes:
-    """Narxsiz tijorat taklifi PDF faylini yaratadi va baytlar ko'rinishida qaytaradi."""
+    """
+    Narxsiz tijorat taklifi PDF faylini yaratadi va baytlar ko'rinishida qaytaradi.
+    mavjudlik berilsa (ombor tasdiqlagan sonlar) - jadvalda "Omborda" ustuni chiqadi.
+    """
     t = MATNLAR[pdf_tili(til)]
     u = _uslublar()
     sana = sana or datetime.now()
@@ -206,19 +218,31 @@ def taklif_pdf(
     # Tijorat shartlari jadvali
     hikoya.append(Paragraph(t["shartlar"], u["bolim"]))
     hikoya.append(Spacer(1, 2 * mm))
-    qatorlar = [[Paragraph(x, u["jadval_bosh"]) for x in t["ustunlar"]]]
+    ustunlar = t["ustunlar_mavjud"] if mavjudlik is not None else t["ustunlar"]
+    qatorlar = [[Paragraph(x, u["jadval_bosh"]) for x in ustunlar]]
     for i, p in enumerate(pozitsiyalar, 1):
         nomi = f"{escape(p['nomi'])}"
         if p.get("parametrlar"):
             nomi += f"<br/><font color='#5F6B73' size='7.5'>{escape(p['parametrlar'])}</font>"
         miqdor = f"{p['miqdor']} {escape(p.get('birlik') or '')}".strip() if p.get("miqdor") else "—"
-        qatorlar.append([
+        qator = [
             Paragraph(str(i), u["jadval_markaz"]),
             Paragraph(nomi, u["jadval"]),
             Paragraph(miqdor, u["jadval_markaz"]),
-            Paragraph(t["narx"], u["jadval_markaz"]),
-        ])
-    jadval = Table(qatorlar, colWidths=[kenglik * 0.07, kenglik * 0.55, kenglik * 0.16, kenglik * 0.22], repeatRows=1)
+        ]
+        if mavjudlik is not None:
+            bor = mavjudlik[i - 1] if i - 1 < len(mavjudlik) else 0
+            qator.append(Paragraph(
+                t["bor"].format(n=bor, birlik=escape(p.get("birlik") or "")).strip() if bor else t["yoq"],
+                u["jadval_markaz"],
+            ))
+        qator.append(Paragraph(t["narx"], u["jadval_markaz"]))
+        qatorlar.append(qator)
+    if mavjudlik is not None:
+        kengliklar = [kenglik * 0.07, kenglik * 0.43, kenglik * 0.14, kenglik * 0.17, kenglik * 0.19]
+    else:
+        kengliklar = [kenglik * 0.07, kenglik * 0.55, kenglik * 0.16, kenglik * 0.22]
+    jadval = Table(qatorlar, colWidths=kengliklar, repeatRows=1)
     uslub = [
         ("BACKGROUND", (0, 0), (-1, 0), TEAL),
         ("GRID", (0, 0), (-1, -1), 0.5, CHIZIQ),
@@ -229,7 +253,7 @@ def taklif_pdf(
     for r in range(2, len(qatorlar), 2):
         uslub.append(("BACKGROUND", (0, r), (-1, r), KULRANG_FON))
     jadval.setStyle(TableStyle(uslub))
-    hikoya += [jadval, Spacer(1, 2 * mm), Paragraph(t["izoh"], u["xira"]), Spacer(1, 6 * mm)]
+    hikoya += [jadval, Spacer(1, 2 * mm), Paragraph(t["izoh_mavjud"] if mavjudlik is not None else t["izoh"], u["xira"]), Spacer(1, 6 * mm)]
 
     hikoya += [
         Paragraph(t["yakun"], u["matn"]),

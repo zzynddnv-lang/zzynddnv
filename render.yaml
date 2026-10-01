@@ -19,8 +19,8 @@ services:
         sync: false
       - key: KOMPANIYA_NOMI
         value: UMATIC
-      - key: NARX_OMBORDAN
-        value: "0"
+      - key: TAKLIF_REJIMI
+        value: mavjudlik
       - key: KATTA_BUYURTMA_CHEGARASI
         value: "100000000"
       - key: OLDINDAN_TOLOV_FOIZI

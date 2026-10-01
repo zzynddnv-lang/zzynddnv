@@ -8,6 +8,7 @@
 
 - "UMATIC" MChJ — o'zbek-avstriya qo'shma korxonasi. Toshkent va viloyatlar bo'ylab ishlaydi.
 - Elektr dvigatellar va nasoslar ishlab chiqaruvchi jahon brendlarining rasmiy vakili: mijozga ORIGINAL uskuna yetkazib beramiz.
+- 3 yo'nalish: elektr dvigatellar, nasos agregatlari, elektroizolyatsiya materiallari (umatic.uz katalogidagi barcha mahsulotlar).
 - Malakali mutaxassislar jamoasi, ulgurji bo'lim va chakana tarmoq, o'z omborlari va transporti bor.
 - Muhandislik tanlovi: mijozning texnik parametrlari va ish sharoitiga qarab mos dvigatelni tanlab beramiz.
 - Mijozlarimiz: zavodlar, qishloq xo'jaligi, konchilik va og'ir sanoat, qurilish pudratchilari.

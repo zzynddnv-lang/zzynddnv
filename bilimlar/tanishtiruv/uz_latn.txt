@@ -1,14 +1,22 @@
-Assalomu alaykum! 👋 UMATIC — o'zbek-avstriya qo'shma korxonasi, elektr dvigatel ishlab chiqaruvchi jahon brendlarining rasmiy vakili.
+Assalomu alaykum! 👋 Men — UMATIC kompaniyasining AI savdo yordamchisiman. Sizga kerakli uskunani tanlashda yordam beraman.
 
-Sanoat uchun elektr dvigatellar yetkazib beramiz:
+UMATIC — o'zbek-avstriya qo'shma korxonasi, elektr dvigatel va nasos ishlab chiqaruvchi jahon brendlarining rasmiy vakili. Biz 3 yo'nalishda ishlaymiz:
 
-⚙️ Umumsanoat asinxron (AIR) — 0,25 dan 200 kVt gacha: nasos, ventilyator, kompressor, konveyer va stanoklar uchun
-🏗 Kran-metallurgiya (MTN, MTKN) — 5–60 kVt: kran va ko'tarish mexanizmlari uchun, tez-tez ishga tushirish va ortiqcha yuklamaga chidamli
-🛡 Portlashdan himoyalangan (VA, VAO) — 4 dan 5000 kVt gacha: neft-gaz, kon, kimyo sanoati va shaxtalar uchun
-🔋 Sinxron (SD, SDM, VDS, STDM) — 500 dan 12 500 kVt gacha, 6–10 kV: yirik nasos, kompressor va tegirmonlar uchun
+⚙️ Elektr dvigatellar
+• umumsanoat asinxron АИР — 0,25 dan 200 kVt gacha
+• kran-metallurgiya МТН, МТКН — 5–60 kVt
+• portlashdan himoyalangan ВА, ВАО — 4 dan 5000 kVt gacha
+• sinxron СД, СДМ, ВДС, СТДМ — 500 dan 12 500 kVt gacha (6–10 kV)
 
-✅ Original uskuna
-✅ Muhandislik tanlovi — dvigatelni mexanizmingizga aniq moslab beramiz
-✅ O'z omborlarimiz va transportimiz
+💧 Nasos agregatlari
+• quduq (skvajina) nasoslari ЭЦВ
+• ikki tomonlama kirishli Д, konsol К, monoblok «Гном»
 
-Sizga qanday dvigatel kerak? Quvvat (kVt) va aylanish tezligini (ob/min) yozing — katalogimizdan mos modelni tanlab, tijorat taklifini yuboraman.
+🧵 Elektroizolyatsiya materiallari
+• mis emal sim ПЭТВ-2
+• stator va yakor o'ram seksiyalari (buyurtma asosida tayyorlanadi)
+• kiper lenta, ish qo'lqoplari
+
+✅ Original uskuna  ✅ Muhandislik tanlovi  ✅ O'z omborlarimiz va transportimiz
+
+Sizga nima kerak? Parametrlarni yozing (dvigatel uchun — quvvat va aylanish tezligi, nasos uchun — sarf va napor). Mos modelni tanlab, texnik ma'lumoti va rasmini yuboraman.

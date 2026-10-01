@@ -1,11 +1,14 @@
 # 🤖 UMATIC savdo menejeri — Telegram AI sotuv boti
 
-Bot Telegram'da (Telegram Business akkaunt yoki botning o'zi orqali) yozgan mijozlar bilan **elektr dvigatellar bo'yicha savdo menejeri** kabi ishlaydi:
+Bot Telegram'da (Telegram Business akkaunt yoki botning o'zi orqali) yozgan mijozlar bilan **savdo menejeri** kabi ishlaydi. UMATIC ning 3 yo'nalishi: **elektr dvigatellar, nasos agregatlari, elektroizolyatsiya materiallari** (umatic.uz dagi 104 ta mahsulot).
 
-- elektr dvigatellar haqida ma'lumot beradi, mijoz ehtiyojini savollar bilan aniqlaydi;
+- birinchi xabarda o'zini tanishtiradi va kompaniya/mahsulotlar taqdimotini yuboradi;
+- mahsulotlar haqida ma'lumot beradi, so'ralsa **texnik ma'lumot va rasmini** yuboradi (saytdan);
+- model nomlarini saytdagidek **kirill** yozuvida yozadi (АИР132М4У1, ЭЦВ 8-25-100);
+- mijoz tilini aniqlaydi va "rus tilida gapiring" kabi so'rovda tilni almashtiradi;
 - sovuq mijozni qizdiradi, e'tirozlarga javob beradi, sotuvga olib boradi;
 - mijoz qaysi tilda yozsa (o'zbek lotin, o'zbek kirill, rus) — o'sha tilda javob beradi;
-- **narx aytmaydi**: pozitsiya va miqdor aniq bo'lgach, mijozga UMATIC shablonidagi **narxsiz tijorat taklifini (PDF)** yuboradi, nusxasi menejerga keladi — narxni menejer bildiradi;
+- **narx aytmaydi**: pozitsiya va miqdor aniq bo'lgach, avval **omborda mavjudligi tekshiriladi** (ombor/menejer tugma bosadi), keyin mijozga UMATIC shablonidagi **tijorat taklifi (PDF, "Omborda" ustuni bilan)** yuboriladi — narxni menejer bildiradi;
 - (ixtiyoriy, `NARX_OMBORDAN=1`) ombor mas'uli Telegram'da narx kiritadi va bot narxli taklifni o'zi hisoblab yuboradi;
 - mijoz haqidagi barcha ma'lumotni **CRM** ga yig'adi (SQLite + CSV + Google Sheets) va menejerga bildirishnoma yuboradi.
 
@@ -58,7 +61,7 @@ Bot faqat `bilimlar/` papkasidagi fayllarda yozilgan faktlarga tayanadi:
 | `bilimlar/01_kompaniya.md` | Kompaniya haqida: kimsiz, afzalliklar (kafolat, yetkazib berish — aniq bo'lganda) |
 | `bilimlar/02_mahsulotlar.md` | Elektr dvigatellar: umumiy ma'lumot va mijozdan qaysi parametrlarni so'rash kerak (brend/seriyalarni shu yerga qo'shing) |
 | `bilimlar/03_sotuv_qoidalari.md` | Muloqot uslubi, sotuv bosqichlari, e'tirozlarga javoblar, taqiqlar |
-| `bilimlar/04_katalog.md` | umatic.uz dagi 40 ta dvigatel modeli (model, kVt, ob/min, V, IP) |
+| `bilimlar/katalog.json` | umatic.uz dagi 104 ta mahsulot: texnik ma'lumot, rasm, havola. **Yangilash:** `python tools/katalog_yangilash.py` |
 | `bilimlar/tanishtiruv/uz_latn.txt`, `uz_cyrl.txt`, `ru.txt` | Mijozning **birinchi xabariga** avtomatik yuboriladigan taqdimot: kompaniya, 4 tur dvigatel, afzalliklar, chaqiriq. AI ga bog'liq emas — har doim to'liq chiqadi |
 
 Qoidalar:
@@ -83,7 +86,7 @@ pip install -r requirements.txt
 | `BOT_TOKEN` | @BotFather dan olingan token |
 | `GROQ_API_KEY` | https://console.groq.com/keys |
 | `OWNER_ID` | Egalar/menejerlar Telegram ID si (botga `/start` yuborsangiz ko'rsatiladi) |
-| `NARX_OMBORDAN` | `0` — narxsiz PDF taklif (standart); `1` — ombor narx kiritadi |
+| `TAKLIF_REJIMI` | `mavjudlik` (standart) — ombor mavjudlikni tasdiqlagach PDF; `narx` — ombor narx kiritadi; `darhol` — tekshiruvsiz PDF |
 | `SKLAD_CHAT_ID` | Faqat `NARX_OMBORDAN=1` da: ombor mas'uli yoki ombor guruhi chat ID si (guruhda `/chatid`) |
 | `KOMPANIYA_NOMI` | `UMATIC` |
 | `KATTA_BUYURTMA_CHEGARASI`, `OLDINDAN_TOLOV_FOIZI` | Faqat `NARX_OMBORDAN=1` da, to'lov sharti: `100000000`, `50` |
