@@ -3,14 +3,18 @@ TIJORAT TAKLIFI PDF - UMATIC shabloni asosida (UMATIC_Tijorat_taklifi_UZ.docx / 
 
 Serverda Word yo'q, shuning uchun shablon dizayni reportlab bilan qayta chizilgan:
 logotip, rekvizitlar, ranglar (#008E87), jadval va imzo - shablondagidek.
-Hozirgi kelishuv bo'yicha taklif NARXSIZ: narx ustunida "So'rov bo'yicha".
-Kafolat, yetkazib berish, to'lov sharti va menejer qatori yo'q.
+Standart rejimda taklif NARXSIZ: narx ustunida "So'rov bo'yicha".
+Ombor rejimida (NARX_OMBORDAN=1) narxlar berilsa - narx, summa, jami va to'lov sharti bilan chiziladi.
+Tillar: UZ (lotin va kirill mijozlar uchun), RU, EN.
 """
 
 import io
 import os
 from datetime import datetime
 from xml.sax.saxutils import escape
+
+import sotuv
+from vaqt import hozir
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
@@ -96,12 +100,51 @@ MATNLAR = {
         "hamkorlik": "Будем рады долгосрочному и взаимовыгодному сотрудничеству.",
         "imzo": "С уважением,<br/>Юсуфбоев Бегзод<br/>Руководитель отдела продаж",
     },
+    "en": {
+        "kompaniya": "“UMATIC” LLC Joint Venture",
+        "rekvizit": "TIN 311152304  •  acc. 20208000007034472001 (UZS)  •  Bank code 01198",
+        "footer": "“UMATIC” LLC JV  |  TIN 311152304  |  acc. 20208000007034472001 (UZS)  |  Bank code 01198",
+        "raqam": "Ref. No.",
+        "sana": "Date:",
+        "kimga": "To:",
+        "aloqa": "Contact:",
+        "sarlavha": "COMMERCIAL OFFER",
+        "tagsarlavha": "for the supply of electric motors",
+        "hurmatli": "Dear {ism},",
+        "hurmatli_umumiy": "Dear customer,",
+        "kirish": (
+            "“UMATIC” LLC JV thanks you for your interest in our company and invites you to consider cooperation "
+            "on the supply of electric motors. We are ready to prepare a solution that fits your technical "
+            "requirements, budget and project timeline."
+        ),
+        "predmet": "Subject:",
+        "shartlar": "COMMERCIAL TERMS",
+        "ustunlar": ["No.", "Goods / service", "Qty", "Price"],
+        "narx": "On request",
+        "izoh": "* Price and availability are provided separately based on warehouse data.",
+        "yakun": (
+            "If necessary, we are ready to promptly clarify the technical details, prepare a specification "
+            "and offer the best terms for your project."
+        ),
+        "hamkorlik": "We look forward to long-term and mutually beneficial cooperation.",
+        "imzo": "Best regards,<br/>Begzod Yusufboyev<br/>Head of Sales",
+    },
+}
+
+# Narxli taklif uchun qo'shimcha ustun va qatorlar
+NARXLI = {
+    "uz": {"ustunlar": ["№", "Tovar / xizmat", "Miqdori", "Narxi, so‘m", "Summa, so‘m"], "jami": "JAMI", "yoq": "omborda yo‘q",
+           "izoh": "* Narxlar ombor ma’lumotlari asosida."},
+    "ru": {"ustunlar": ["№", "Товар / услуга", "Кол-во", "Цена, сум", "Сумма, сум"], "jami": "ИТОГО", "yoq": "нет в наличии",
+           "izoh": "* Цены по данным склада."},
+    "en": {"ustunlar": ["No.", "Goods / service", "Qty", "Price, UZS", "Amount, UZS"], "jami": "TOTAL", "yoq": "out of stock",
+           "izoh": "* Prices are based on warehouse data."},
 }
 
 
 def pdf_tili(til: str) -> str:
-    """Mijoz tili bo'yicha shablon: rus - RU, o'zbek (lotin va kirill) - UZ."""
-    return "ru" if til == "ru" else "uz"
+    """Mijoz tili bo'yicha shablon: rus - RU, ingliz - EN, o'zbek (lotin va kirill) - UZ."""
+    return til if til in ("ru", "en") else "uz"
 
 
 def taklif_raqami(sorov_id: int) -> str:
@@ -156,11 +199,16 @@ def taklif_pdf(
     telefon: str = "",
     predmet: str = "",
     sana: datetime | None = None,
+    narxlar: list[dict] | None = None,
+    izoh: str = "",
 ) -> bytes:
-    """Narxsiz tijorat taklifi PDF faylini yaratadi va baytlar ko'rinishida qaytaradi."""
+    """
+    Tijorat taklifi PDF faylini yaratadi va baytlar ko'rinishida qaytaradi.
+    narxlar berilmasa - narxsiz ("So'rov bo'yicha"); berilsa - narx, summa, jami va to'lov sharti bilan.
+    """
     t = MATNLAR[pdf_tili(til)]
     u = _uslublar()
-    sana = sana or datetime.now()
+    sana = sana or hozir()
     kenglik = A4[0] - 36 * mm
 
     hikoya = []
@@ -206,30 +254,10 @@ def taklif_pdf(
     # Tijorat shartlari jadvali
     hikoya.append(Paragraph(t["shartlar"], u["bolim"]))
     hikoya.append(Spacer(1, 2 * mm))
-    qatorlar = [[Paragraph(x, u["jadval_bosh"]) for x in t["ustunlar"]]]
-    for i, p in enumerate(pozitsiyalar, 1):
-        nomi = f"{escape(p['nomi'])}"
-        if p.get("parametrlar"):
-            nomi += f"<br/><font color='#5F6B73' size='7.5'>{escape(p['parametrlar'])}</font>"
-        miqdor = f"{p['miqdor']} {escape(p.get('birlik') or '')}".strip() if p.get("miqdor") else "—"
-        qatorlar.append([
-            Paragraph(str(i), u["jadval_markaz"]),
-            Paragraph(nomi, u["jadval"]),
-            Paragraph(miqdor, u["jadval_markaz"]),
-            Paragraph(t["narx"], u["jadval_markaz"]),
-        ])
-    jadval = Table(qatorlar, colWidths=[kenglik * 0.07, kenglik * 0.55, kenglik * 0.16, kenglik * 0.22], repeatRows=1)
-    uslub = [
-        ("BACKGROUND", (0, 0), (-1, 0), TEAL),
-        ("GRID", (0, 0), (-1, -1), 0.5, CHIZIQ),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.8, TEAL),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]
-    for r in range(2, len(qatorlar), 2):
-        uslub.append(("BACKGROUND", (0, r), (-1, r), KULRANG_FON))
-    jadval.setStyle(TableStyle(uslub))
-    hikoya += [jadval, Spacer(1, 2 * mm), Paragraph(t["izoh"], u["xira"]), Spacer(1, 6 * mm)]
+    if narxlar:
+        hikoya += _narxli_jadval(pozitsiyalar, narxlar, til, u, kenglik, izoh)
+    else:
+        hikoya += _narxsiz_jadval(pozitsiyalar, t, u, kenglik)
 
     hikoya += [
         Paragraph(t["yakun"], u["matn"]),
@@ -253,6 +281,95 @@ def taklif_pdf(
     return bufer.getvalue()
 
 
+def _jadval_uslubi(qatorlar_soni: int, jami_qator: bool = False) -> TableStyle:
+    uslub = [
+        ("BACKGROUND", (0, 0), (-1, 0), TEAL),
+        ("GRID", (0, 0), (-1, -1), 0.5, CHIZIQ),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, TEAL),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]
+    oxirgi = qatorlar_soni - (1 if jami_qator else 0)
+    for r in range(2, oxirgi, 2):
+        uslub.append(("BACKGROUND", (0, r), (-1, r), KULRANG_FON))
+    if jami_qator:
+        uslub += [("BACKGROUND", (0, -1), (-1, -1), TEAL_OCH), ("SPAN", (0, -1), (3, -1))]
+    return TableStyle(uslub)
+
+
+def _nomi_paragrafi(p: dict, u: dict) -> Paragraph:
+    nomi = escape(p["nomi"])
+    if p.get("parametrlar"):
+        nomi += f"<br/><font color='#5F6B73' size='7.5'>{escape(p['parametrlar'])}</font>"
+    return Paragraph(nomi, u["jadval"])
+
+
+def _narxsiz_jadval(pozitsiyalar: list[dict], t: dict, u: dict, kenglik: float) -> list:
+    qatorlar = [[Paragraph(x, u["jadval_bosh"]) for x in t["ustunlar"]]]
+    for i, p in enumerate(pozitsiyalar, 1):
+        miqdor = f"{p['miqdor']} {escape(p.get('birlik') or '')}".strip() if p.get("miqdor") else "—"
+        qatorlar.append([
+            Paragraph(str(i), u["jadval_markaz"]),
+            _nomi_paragrafi(p, u),
+            Paragraph(miqdor, u["jadval_markaz"]),
+            Paragraph(t["narx"], u["jadval_markaz"]),
+        ])
+    jadval = Table(qatorlar, colWidths=[kenglik * 0.07, kenglik * 0.55, kenglik * 0.16, kenglik * 0.22], repeatRows=1)
+    jadval.setStyle(_jadval_uslubi(len(qatorlar)))
+    return [jadval, Spacer(1, 2 * mm), Paragraph(t["izoh"], u["xira"]), Spacer(1, 6 * mm)]
+
+
+def _narxli_jadval(pozitsiyalar: list[dict], narxlar: list[dict], til: str, u: dict, kenglik: float, izoh: str) -> list:
+    """Narx, summa va jami - hammasi sotuv.hisoblash orqali (mijozga matnda boradigan raqamlar bilan bir xil)."""
+    n = NARXLI[pdf_tili(til)]
+    hisob, jami = sotuv.hisoblash(pozitsiyalar, narxlar)
+    qatorlar = [[Paragraph(x, u["jadval_bosh"]) for x in n["ustunlar"]]]
+    for i, q in enumerate(hisob, 1):
+        if q["sotiladi"]:
+            miqdor = f"{q['sotiladi']} {escape(q['birlik'])}"
+            if q["sotiladi"] < q["soralgan"]:
+                miqdor += f"<br/><font size='7'>({q['soralgan']})</font>"
+            narx, summa = sotuv.son_format(q["narx"]), sotuv.son_format(q["summa"])
+        else:
+            miqdor, narx, summa = "—", n["yoq"], "—"
+        qatorlar.append([
+            Paragraph(str(i), u["jadval_markaz"]),
+            _nomi_paragrafi(q, u),
+            Paragraph(miqdor, u["jadval_markaz"]),
+            Paragraph(narx, u["jadval_markaz"]),
+            Paragraph(summa, u["jadval_markaz"]),
+        ])
+    qatorlar.append([Paragraph(f"<b>{n['jami']}</b>", u["jadval"]), "", "", "",
+                     Paragraph(f"<b>{sotuv.son_format(jami)}</b>", u["jadval_markaz"])])
+    jadval = Table(qatorlar, colWidths=[kenglik * 0.07, kenglik * 0.43, kenglik * 0.14, kenglik * 0.18, kenglik * 0.18],
+                   repeatRows=1)
+    jadval.setStyle(_jadval_uslubi(len(qatorlar), jami_qator=True))
+
+    # To'lov sharti, muddat va izoh - mijozga yuboriladigan matn bilan bir xil (sotuv._MATNLAR)
+    t = sotuv._MATNLAR.get(til if til in sotuv._MATNLAR else "uz_latn")
+    oldindan, qolgan = sotuv.tolov_qismlari(jami)
+    shartlar = [
+        t["tolov_qisman"].format(
+            foiz=sotuv.OLDINDAN_TOLOV_FOIZI, qfoiz=100 - sotuv.OLDINDAN_TOLOV_FOIZI,
+            oldindan=sotuv.son_format(oldindan), qolgan=sotuv.son_format(qolgan),
+        ) if qolgan else t["tolov_toliq"],
+        t["yetkazish"],
+        t["muddat"].format(kun=sotuv.TAKLIF_MUDDATI_KUN),
+    ]
+    if sotuv.NARX_IZOHI:
+        shartlar.insert(0, sotuv.NARX_IZOHI)
+    if izoh:
+        shartlar.append(t["izoh"].format(izoh=izoh))
+    natija = [jadval, Spacer(1, 2 * mm), Paragraph(n["izoh"], u["xira"]), Spacer(1, 4 * mm)]
+    natija += [Paragraph(escape(_emojisiz(x)), u["matn"]) for x in shartlar]
+    return natija + [Spacer(1, 6 * mm)]
+
+
+def _emojisiz(matn: str) -> str:
+    """PDF shriftida emoji yo'q - matn boshidagi belgini olib tashlaymiz."""
+    return "• " + matn.lstrip("💳🚚⏳📝 ").strip()
+
+
 def fayl_nomi(sorov_id: int, til: str) -> str:
-    prefiks = "Kommercheskoe_predlozhenie" if pdf_tili(til) == "ru" else "Tijorat_taklifi"
+    prefiks = {"ru": "Kommercheskoe_predlozhenie", "en": "Commercial_offer"}.get(pdf_tili(til), "Tijorat_taklifi")
     return f"UMATIC_{prefiks}_{taklif_raqami(sorov_id)}.pdf"

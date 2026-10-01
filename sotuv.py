@@ -25,7 +25,9 @@ TAKLIF_MUDDATI_KUN = int(os.getenv("TAKLIF_MUDDATI_KUN", "3"))
 # Narx haqida izoh, masalan: "QQS bilan". Bo'sh bo'lsa ko'rsatilmaydi.
 NARX_IZOHI = os.getenv("NARX_IZOHI", "").strip()
 
-TILLAR = ("uz_latn", "uz_cyrl", "ru")
+TILLAR = ("uz_latn", "uz_cyrl", "ru", "en")
+# Qo'llab-quvvatlanmaydigan til (mijozga "bu tilda muloqotga ruxsat berilmagan" deyiladi)
+BOSHQA_TIL = "boshqa"
 BOSQICHLAR = (
     "yangi", "qiziqish", "ehtiyoj_aniqlanmoqda", "narx_sorovi",
     "taklif_berildi", "muzokara", "kelishildi", "rad_etdi",
@@ -48,7 +50,7 @@ JAVOB_SXEMASI = {
     "additionalProperties": False,
     "required": [
         "javob", "til", "mijoz", "ehtiyoj", "mahsulotlar", "narx_sorash",
-        "buyurtma_tasdiqlandi", "bosqich", "harorat", "menejer_kerak", "menejer_sababi", "xulosa",
+        "buyurtma_tasdiqlandi", "bosqich", "harorat", "menejer_kerak", "menejer_sababi", "xulosa", "uslub",
     ],
     "properties": {
         "javob": _str("Mijozga yuboriladigan xabar matni (mijoz tilida)"),
@@ -88,6 +90,7 @@ JAVOB_SXEMASI = {
         "menejer_kerak": {"type": "boolean", "description": "Jonli menejer aralashuvi kerak"},
         "menejer_sababi": _str("Nega menejer kerak (chegirma, murakkab texnik savol, shikoyat, qo'ng'iroq so'radi)"),
         "xulosa": _str("CRM uchun suhbat xulosasi, 1-2 gap"),
+        "uslub": _str("Mijozning yozish uslubi va xarakteri, keyingi suhbatlar uchun (1 gap)"),
     },
 }
 
@@ -149,12 +152,31 @@ def narx_sorash_mumkinmi(royxat: list[dict]) -> bool:
     )
 
 
+_KIRILL_LOTIN = str.maketrans({
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "j", "з": "z", "и": "i",
+    "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
+    "у": "u", "ф": "f", "х": "x", "ц": "s", "ч": "ch", "ш": "sh", "щ": "sh", "ы": "i", "э": "e", "ю": "yu",
+    "я": "ya", "ў": "o", "қ": "q", "ғ": "g", "ҳ": "h", "ъ": "", "ь": "",
+})
+
+
+def _sonlar(matn: str) -> tuple:
+    return tuple(sorted(float(x.replace(",", ".")) for x in re.findall(r"\d+(?:[.,]\d+)?", matn or "")))
+
+
+def _pozitsiya_kaliti(p: dict) -> tuple:
+    """
+    Pozitsiyaning yozilishiga bog'liq bo'lmagan kaliti: model kodlari (raqamli so'zlar, kirill/lotin farqisiz),
+    parametrlardagi sonlar va miqdor. "AIR 100L4, 4 kVt" va "АИР100L4, 4кВт" - bitta pozitsiya.
+    """
+    nomi = (p["nomi"] or "").lower().translate(_KIRILL_LOTIN)
+    kodlar = tuple(sorted(re.sub(r"[^a-z0-9]", "", s) for s in re.findall(r"[a-z]+[\s-]?\d+[a-z0-9]*|\d+[a-z]+\d*", nomi)))
+    return (kodlar, _sonlar(p["parametrlar"]), p["miqdor"])
+
+
 def mahsulotlar_kaliti(royxat: list[dict]) -> str:
-    """Ikki so'rov bir xil pozitsiyalardan iboratligini solishtirish uchun kalit."""
-    return json.dumps(
-        sorted((p["nomi"].lower(), p["parametrlar"].lower(), p["miqdor"], p["birlik"].lower()) for p in royxat),
-        ensure_ascii=False,
-    )
+    """Ikki so'rov bir xil pozitsiyalardan iboratligini solishtirish uchun kalit (AI qayta ifodalasa ham o'zgarmaydi)."""
+    return json.dumps(sorted(_pozitsiya_kaliti(p) for p in royxat))
 
 
 def _ichidan_javobni_olish(matn: str) -> str:
@@ -212,6 +234,7 @@ def ai_natijasini_ajratish(matn: str) -> dict | None:
         "menejer_kerak": data.get("menejer_kerak") is True,
         "menejer_sababi": str(data.get("menejer_sababi") or "").strip()[:300],
         "xulosa": str(data.get("xulosa") or "").strip()[:600],
+        "uslub": str(data.get("uslub") or "").strip()[:300],
     }
 
 
@@ -229,10 +252,33 @@ def bosqichni_birlashtirish(eski: str, yangi: str) -> str:
 # =====================================================================
 
 _UZ_KIRILL_HARFLAR = set("ўқғҳЎҚҒҲ")
-_UZ_KIRILL_SOZLAR = (
-    "ассалому", "салом", "керак", "борми", "нархи", "канча", "қанча", "ака", "рахмат", "раҳмат",
-    "йук", "йўқ", "бор ", "булади", "бўлади", "качон", "қачон", "тулов", "тўлов", "яхши", "хоп",
-)
+# Faqat to'liq so'z sifatida tekshiriladi ("ака" - "какая" ichida ham bor, shuning uchun qism sifatida emas)
+_UZ_KIRILL_SOZLAR = {
+    "ака", "бор", "борми", "йук", "йўқ", "хоп", "ха", "ҳа", "яхши", "керак", "кераг", "керакми", "канча", "қанча",
+    "нархи", "нарх", "рахмат", "раҳмат", "булади", "бўлади", "буладими", "качон", "қачон", "тулов", "тўлов",
+    "салом", "ассалому", "ассалом", "алайкум", "мени", "менга", "сизга", "учун", "билан", "нима", "қандай",
+    "кандай", "дона", "двигател", "борми", "акажон", "опа", "ука",
+}
+_UZ_LOTIN_SOZLAR = {
+    "salom", "assalomu", "assalom", "alaykum", "aleykum", "kerak", "kerakmi", "bor", "bormi", "yoq", "yo'q",
+    "qancha", "narxi", "narx", "narxini", "rahmat", "raxmat", "aka", "uka", "opa", "xop", "hop", "ha", "yaxshi",
+    "qanday", "nima", "uchun", "menga", "sizga", "bilan", "dvigatel", "dvigatelni", "dona", "necha", "nechta",
+    "qachon", "mumkin", "mumkinmi", "emas", "iltimos", "kerakli", "kvt", "ob", "min", "bo'ladi", "boladi",
+    "yuboring", "yozing", "tel", "raqam", "raqamim", "ismim", "manzil", "qayerda", "zavod", "ombor", "va",
+}
+_EN_SOZLAR = {
+    "the", "is", "are", "i", "you", "we", "need", "needs", "motor", "motors", "engine", "price", "prices", "cost",
+    "how", "much", "many", "what", "which", "hello", "hi", "hey", "please", "thanks", "thank", "can", "could",
+    "do", "does", "have", "has", "for", "with", "and", "of", "to", "an", "my", "your", "it", "this", "that",
+    "quote", "quotation", "delivery", "available", "electric", "want", "would", "like", "send", "me", "good",
+    "morning", "afternoon", "evening", "company", "pump", "speed", "power", "where", "when", "yes", "no",
+}
+# Boshqa tillarga xos harflar: turk/nemis/fransuz/ispan, qozoq/qirg'iz/tojik/ukrain kirilli
+_BOSHQA_HARFLAR = set("şğıİäßéèêàçñüöæøåœ" "әңөұүіїєґҷӣӯһ")
+_BOSHQA_SOZLAR = {
+    "merhaba", "fiyat", "fiyatı", "nedir", "istiyorum", "lütfen", "teşekkür", "hola", "bonjour", "ich", "und",
+    "brauche", "bitte", "guten", "danke", "je", "besoin", "moteur", "merci", "necesito", "gracias", "quiero",
+}
 
 
 def _harf_sonlari(matn: str) -> tuple[int, int]:
@@ -242,23 +288,55 @@ def _harf_sonlari(matn: str) -> tuple[int, int]:
     return kirill, lotin
 
 
+def _sozlar(matn: str) -> list[str]:
+    return re.findall(r"[^\W\d_]+(?:['‘’`ʻ][^\W\d_]+)?", (matn or "").lower())
+
+
+def _uz_lotin_ball(sozlar: list[str]) -> int:
+    ball = 0
+    for s in sozlar:
+        if s in _UZ_LOTIN_SOZLAR or re.search(r"[og]['‘’`ʻ]", s):
+            ball += 1
+        elif re.search(r"q(?!u)|x[aeiou]|(lar|ning|dan|ga|mi|miz|siz|ingiz)$", s) and len(s) > 3:
+            ball += 1
+    return ball
+
+
 def tilni_aniqlash(matn: str, oldingi: str = "") -> str:
     """
-    Matn yozilgan tilni aniqlaydi: uz_latn, uz_cyrl yoki ru.
+    Matn yozilgan tilni aniqlaydi: uz_latn, uz_cyrl, ru, en yoki BOSHQA_TIL (ruxsat berilmagan til).
     Matnda harf juda kam bo'lsa ("ok", "5", emoji) - oldingi aniqlangan til qoldiriladi.
     """
     matn = matn or ""
+    past = matn.lower()
     kirill, lotin = _harf_sonlari(matn)
+    harflar = sum(1 for c in matn if c.isalpha())
+    boshqa = sum(1 for c in past if c in _BOSHQA_HARFLAR)
+    # Lotin/kirilldan boshqa yozuvlar: arab, xitoy, gruzin, arman va h.k.
+    begona_yozuv = harflar - kirill - lotin - boshqa
+    if begona_yozuv >= 2 and begona_yozuv > (kirill + lotin):
+        return BOSHQA_TIL
+    sozlar = _sozlar(matn)
+    if boshqa >= 2 or (boshqa and harflar < 30) or any(s in _BOSHQA_SOZLAR for s in sozlar):
+        return BOSHQA_TIL
+
     if kirill + lotin < 3 and oldingi in TILLAR:
         return oldingi
-    if kirill <= lotin:
-        return "uz_latn"
-    past = matn.lower()
-    if any(c in _UZ_KIRILL_HARFLAR for c in matn) or any(s in past for s in _UZ_KIRILL_SOZLAR):
-        return "uz_cyrl"
-    if oldingi == "uz_cyrl" and kirill < 15:
-        return "uz_cyrl"  # qisqa kirill xabar ("хоп", "ок") - avvalgi o'zbek kirill davom etadi
-    return "ru"
+
+    if kirill > lotin:
+        if any(c in _UZ_KIRILL_HARFLAR for c in matn) or any(s in _UZ_KIRILL_SOZLAR for s in sozlar):
+            return "uz_cyrl"
+        if oldingi == "uz_cyrl" and kirill < 15:
+            return "uz_cyrl"  # qisqa kirill xabar ("ок") - avvalgi o'zbek kirill davom etadi
+        return "ru"
+
+    en = sum(1 for s in sozlar if s in _EN_SOZLAR)
+    uz = _uz_lotin_ball(sozlar)
+    if en > uz and (en >= 2 or (en >= 1 and len(sozlar) <= 3)):
+        return "en"
+    if oldingi == "en" and en >= uz and len(sozlar) <= 4:
+        return "en"  # "ok", "4 kW pls" kabi qisqa xabar - ingliz tili davom etadi
+    return "uz_latn"
 
 
 # Texnik belgilar (kVt, V, IP55, UMATIC...) yozuvni aniqlashga xalaqit bermasligi uchun olib tashlanadi
@@ -266,13 +344,25 @@ _TEXNIK_REGEX = re.compile(r"\b(?:[A-Z]{2,}\w*|k?[VW]t?|kVt|IP\d*|Ex|m³|ob/min|
 
 
 def yozuv_mosmi(javob: str, til: str) -> bool:
-    """Javob kutilgan yozuvda (lotin yoki kirill) yozilganini tekshiradi."""
-    kirill, lotin = _harf_sonlari(_TEXNIK_REGEX.sub(" ", javob or ""))
+    """Javob kutilgan tilda/yozuvda (lotin yoki kirill; ingliz yoki o'zbek) yozilganini tekshiradi."""
+    tozalangan = _TEXNIK_REGEX.sub(" ", javob or "")
+    kirill, lotin = _harf_sonlari(tozalangan)
     if kirill + lotin < 10:
         return True
-    if til == "uz_latn":
-        return lotin >= kirill * 2
-    return kirill >= lotin * 2
+    if til in ("uz_latn", "en"):
+        if lotin < kirill * 2:
+            return False
+        sozlar = _sozlar(tozalangan)
+        en = sum(1 for s in sozlar if s in _EN_SOZLAR)
+        uz = _uz_lotin_ball(sozlar)
+        if til == "en":
+            return not (uz >= 2 and uz > en)
+        return not (en >= 3 and en > uz * 2)
+    if kirill < lotin * 2:
+        return False
+    if til == "ru":
+        return sum(1 for c in tozalangan if c in _UZ_KIRILL_HARFLAR) < 2
+    return True
 
 
 # =====================================================================
@@ -280,17 +370,15 @@ def yozuv_mosmi(javob: str, til: str) -> bool:
 # =====================================================================
 
 _NARX_REGEX = re.compile(
-    r"\d[\d\s.,]*\s*(so['‘’`]?m|сўм|сум|sum\b|uzs|\$|usd|dollar|доллар|mln|млн|million|миллион|ming\b|минг|тыс)",
+    r"\d[\d\s.,]*\s*(so['‘’`]?m|сўм|сум|sum\b|uzs|\$|usd|dollar|доллар|€|eur|euro|руб|mln|млн|million|миллион|ming\b|минг|тыс|thousand)",
     re.IGNORECASE,
 )
 
 
 def _chegara_variantlari() -> list[str]:
     mln = KATTA_BUYURTMA_CHEGARASI // 1_000_000
-    return [
-        rf"{mln}\s*(mln|млн|million|миллион)",
-        rf"{son_format(KATTA_BUYURTMA_CHEGARASI).replace(' ', r'[\s.,]?')}",
-    ]
+    toliq = son_format(KATTA_BUYURTMA_CHEGARASI).replace(" ", r"[\s.,]?")
+    return [rf"{mln}\s*(mln|млн|million|миллион)", toliq]
 
 
 def narx_aytilganmi(javob: str) -> bool:
@@ -302,6 +390,42 @@ def narx_aytilganmi(javob: str) -> bool:
     for variant in _chegara_variantlari():
         tekshiriladigan = re.sub(variant, " ", tekshiriladigan, flags=re.IGNORECASE)
     return bool(_NARX_REGEX.search(tekshiriladigan))
+
+
+# =====================================================================
+#  TELEFON RAQAMLARI
+# =====================================================================
+
+# O'zbekiston operator va shahar kodlari (9 xonali raqamning boshi)
+_UZ_KODLAR = (
+    "20", "33", "50", "55", "61", "62", "65", "66", "67", "69", "70", "71", "72", "73", "74", "75", "76",
+    "77", "78", "79", "88", "90", "91", "93", "94", "95", "97", "98", "99",
+)
+_TEL_REGEX = re.compile(r"(?<![\d+])(\+?\s*\d[\d\s\-().]{7,18}\d)(?!\d)")
+
+
+def _telefonni_formatlash(raqamlar: str) -> str:
+    return f"+998 {raqamlar[:2]} {raqamlar[2:5]} {raqamlar[5:7]} {raqamlar[7:9]}"
+
+
+def telefon_topish(matn: str) -> str:
+    """
+    Matndan telefon raqamini topadi va bir xil ko'rinishga keltiradi.
+    O'zbekiston: +998 90 123 45 67, 998901234567, 90 123-45-67, (77) 1234567, 8 90 123 45 67 ...
+    Xorijiy: + bilan boshlangan 10-15 xonali raqam (+7 999 123 45 67).
+    """
+    for m in _TEL_REGEX.finditer(matn or ""):
+        xom = m.group(1)
+        raqamlar = re.sub(r"\D", "", xom)
+        if len(raqamlar) == 12 and raqamlar.startswith("998") and raqamlar[3:5] in _UZ_KODLAR:
+            return _telefonni_formatlash(raqamlar[3:])
+        if len(raqamlar) == 9 and raqamlar[:2] in _UZ_KODLAR:
+            return _telefonni_formatlash(raqamlar)
+        if len(raqamlar) == 10 and raqamlar[0] == "8" and raqamlar[1:3] in _UZ_KODLAR:
+            return _telefonni_formatlash(raqamlar[1:])  # eski format: 8 90 123 45 67
+        if xom.lstrip().startswith("+") and 10 <= len(raqamlar) <= 15:
+            return "+" + raqamlar
+    return ""
 
 
 # =====================================================================
@@ -503,7 +627,36 @@ _MATNLAR = {
         "taklif_tayyorlanmoqda": "Сейчас отправлю коммерческое предложение, по цене с вами свяжется наш менеджер.",
         "taklif_predmeti": "Поставка электродвигателей ({soni} поз.)",
     },
+    "en": {
+        "sarlavha": "📄 COMMERCIAL OFFER No.{id}",
+        "qator": "{n}. {nomi}{param} — {sotiladi} {birlik} × {narx} = {summa} UZS",
+        "qisman": "   (requested {soralgan} {birlik}, {sotiladi} {birlik} in stock)",
+        "yoq": "{n}. {nomi}{param} — currently out of stock",
+        "jami": "💰 Total: {jami} UZS",
+        "tolov_toliq": "💳 Payment: 100% prepayment",
+        "tolov_qisman": "💳 Payment: {foiz}% prepayment ({oldindan} UZS), remaining {qfoiz}% ({qolgan} UZS) — before pickup from the warehouse",
+        "yetkazish": "🚚 Delivery: items in stock — within 1–3 days",
+        "muddat": "⏳ The offer is valid for {kun} days",
+        "izoh": "📝 {izoh}",
+        "savol": "Shall we place the order? For the invoice we will need your company name and TIN.",
+        "hech_yoq": "Unfortunately, the requested items are currently out of stock. Our manager will contact you shortly with an alternative or a lead time for delivery to order.",
+        "kutish": "I will check the price and availability and send them to you shortly.",
+        "narx_aniqlanadi": "I will check the price and availability. Could you specify which item and what quantity you need?",
+        "ai_xato": "Your message has been received. Our manager will reply shortly.",
+        "salom": "Hello!",
+        "start": "Hello! Welcome to the {kompaniya} sales team. I will help you choose an electric motor. What power and speed do you need?",
+        "taklif_izoh": "📄 Commercial offer {raqam}",
+        "taklif_tayyorlanmoqda": "I am sending you the commercial offer now; our manager will contact you about the price.",
+        "taklif_predmeti": "Supply of electric motors ({soni} items)",
+    },
 }
+
+# Ruxsat berilmagan tilda yozgan mijozga (uch tilda birdan - mijoz qaysi birini tushunsa)
+BOSHQA_TIL_JAVOBI = (
+    "Kechirasiz, menga faqat o'zbek, rus va ingliz tillarida muloqot qilishga ruxsat berilgan.\n"
+    "Извините, мне разрешено общаться только на узбекском, русском и английском языках.\n"
+    "Sorry, I am only permitted to communicate in Uzbek, Russian and English."
+)
 
 
 def matn(kalit: str, til: str) -> str:
@@ -562,7 +715,7 @@ def tolov_sharti_matni() -> str:
 
 _SALOM_REGEX = re.compile(
     r"^\s*(va\s*alaykum\s*(as)?salom|ва\s*алайкум\s*(ас)?салом|assalomu\s+alaykum|ассалому\s+алайкум|"
-    r"здравствуйте|добрый\s+(день|вечер|утро)|доброе\s+утро|привет|salom|салом|hello)(?!\w)[!.,\s]*",
+    r"здравствуйте|добрый\s+(день|вечер|утро)|доброе\s+утро|привет|salom|салом|hello|hi|good\s+(morning|afternoon|evening))(?!\w)[!.,\s]*",
     re.IGNORECASE,
 )
 
@@ -572,14 +725,14 @@ _SALOM_REGEX = re.compile(
 # =====================================================================
 
 _RAHMAT_REGEX = re.compile(
-    r"(rahmat|raxmat|tashakkur|minnatdor\w*|раҳмат|рахмат|ташаккур|миннатдор\w*|спасибо|благодар\w*)",
+    r"(rahmat|raxmat|tashakkur|minnatdor\w*|раҳмат|рахмат|ташаккур|миннатдор\w*|спасибо|благодар\w*|thank\w*)",
     re.IGNORECASE,
 )
 # Minnatdorchilik gapidagi "bo'sh" so'zlar: ular olib tashlangach ma'noli so'z qolmasa - gap butunlay keraksiz
 _RAHMAT_TOLDIRUVCHI = re.compile(
     r"(katta|juda|ko['‘’`]?p|sizga|sizdan|ham|uchun|ma['‘’`]?lumot\w*|javob\w*|savol\w*|murojaat\w*|"
     r"batafsil|tez|kontakt\w*|oldindan|tushundim|yaxshi|заранее|понял\w*|понятно|хорошо|олдиндан|тушундим|большое|огромное|вам|за|информаци\w*|ответ\w*|обращени\w*|"
-    r"катта|жуда|кўп|сизга|учун|маълумот\w*|жавоб\w*)",
+    r"катта|жуда|кўп|сизга|учун|маълумот\w*|жавоб\w*|you|so|much|very|for|the|your|info\w*|reply|answer\w*)",
     re.IGNORECASE,
 )
 
@@ -669,7 +822,7 @@ _SALOM_SOZLARI = {
     "yaxshimisiz", "qalaysiz", "qalesiz", "xayrli", "kun", "tong", "kech", "hayrli",
     "ассалому", "ассалом", "алайкум", "алейкум", "салом", "салам", "ака", "опа", "яхшимисиз", "қалайсиз",
     "здравствуйте", "здравствуй", "привет", "добрый", "доброе", "день", "вечер", "утро", "здрасте",
-    "hello", "hi", "hey", "/start", "start",
+    "hello", "hi", "hey", "good", "morning", "afternoon", "evening", "/start", "start",
 }
 
 

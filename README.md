@@ -2,12 +2,14 @@
 
 Bot Telegram'da (Telegram Business akkaunt yoki botning o'zi orqali) yozgan mijozlar bilan **elektr dvigatellar bo'yicha savdo menejeri** kabi ishlaydi:
 
-- elektr dvigatellar haqida ma'lumot beradi, mijoz ehtiyojini savollar bilan aniqlaydi;
-- sovuq mijozni qizdiradi, e'tirozlarga javob beradi, sotuvga olib boradi;
-- mijoz qaysi tilda yozsa (o'zbek lotin, o'zbek kirill, rus) — o'sha tilda javob beradi;
+- tajribali sotuvchi kabi suhbatni boshqaradi: tanishadi, ehtiyojni aniqlaydi (faqat kerakli savollar), katalogdan mos dvigatelni taklif qiladi va kontaktni oladi;
+- mijozning yozish uslubiga moslashadi va uni eslab qoladi (uslub va suhbat xulosasi) — qaytgan mijoz bilan tanishdek gaplashadi;
+- mijoz qaysi tilda yozsa (o'zbek lotin, o'zbek kirill, rus, ingliz) — o'sha tilda javob beradi; boshqa tillarda "bu tilda muloqotga ruxsat berilmagan" deydi;
+- ketma-ket yozilgan xabarlar va albomlarni yig'ib, bitta yaxlit javob beradi;
 - **narx aytmaydi**: pozitsiya va miqdor aniq bo'lgach, mijozga UMATIC shablonidagi **narxsiz tijorat taklifini (PDF)** yuboradi, nusxasi menejerga keladi — narxni menejer bildiradi;
 - (ixtiyoriy, `NARX_OMBORDAN=1`) ombor mas'uli Telegram'da narx kiritadi va bot narxli taklifni o'zi hisoblab yuboradi;
-- mijoz haqidagi barcha ma'lumotni **CRM** ga yig'adi (SQLite + CSV + Google Sheets) va menejerga bildirishnoma yuboradi.
+- har bir mijozni **lidlar guruhiga** bitta kartochka qilib yuboradi (kontakt olinganda paydo bo'ladi, keyin yangilanib boradi); taklif, buyurtma va "menejer kerak" hodisalari shu kartochkaga javob qilib yoziladi;
+- bazani Telegram'ga avtomatik zaxiralaydi — Render Free'da deploydan keyin ham mijozlar va taklif raqamlari yo'qolmaydi.
 
 ---
 
@@ -22,7 +24,7 @@ Mijozga: 📄 UMATIC_Tijorat_taklifi_UM-00012.pdf (UZ yoki RU, narx ustunida "So
 Menejerga: PDF nusxasi + mijoz kartochkasi → "Mijozga narxni bildiring"      (CRM: 📄)
 ```
 
-PDF sizning `UMATIC_Tijorat_taklifi_UZ.docx` / `..._RU_финал.docx` shabloningiz asosida chiziladi: logotip, rekvizitlar, ranglar, jadval, Yusufboyev Begzod imzosi. Kafolat, yetkazib berish, to'lov sharti va menejer qatori hozircha yo'q. O'zbek (lotin va kirill) mijozga — UZ, rus mijozga — RU shablon.
+PDF sizning `UMATIC_Tijorat_taklifi_UZ.docx` / `..._RU_финал.docx` shabloningiz asosida chiziladi: logotip, rekvizitlar, ranglar, jadval, Yusufboyev Begzod imzosi. O'zbek (lotin va kirill) mijozga — UZ, rus mijozga — RU, ingliz mijozga — EN shablon. Ombor rejimida PDF narx, summa, jami va to'lov sharti bilan chiziladi.
 
 ## 🔄 Ombor rejimi (`NARX_OMBORDAN=1`)
 
@@ -49,6 +51,28 @@ Menejerga: 🎉 MIJOZ BUYURTMANI TASDIQLADI → schyot chiqarish                
 
 ---
 
+## 👥 Lidlar guruhi
+
+1. Telegram guruh oching, botni qo'shing.
+2. Guruhda `/chatid` yuboring (OWNER_ID dagi odam) — raqamni Render'da `LIDLAR_CHAT_ID` ga yozing.
+3. Mijoz telefon raqamini bersa (yoki taklif yuborilsa) guruhda **🔔 LID #12** kartochkasi chiqadi: ism, telefon, kompaniya, ehtiyoj, mahsulot, bosqich, xulosa. Ma'lumot o'zgarsa — shu xabar tahrirlanadi (yangi xabar emas).
+4. PDF taklif nusxasi, mijoz yuborgan rasmlar, "menejer kerak", "buyurtma tasdiqlandi", "taklif javobsiz qoldi" — kartochkaga **javob (reply)** qilib keladi.
+
+Telefon raqamlari barcha O'zbekiston operatorlari (90–99, 88, 77, 33, 50, 55, 20, shahar 71 va h.k.) va `+` bilan yozilgan xorijiy raqamlar uchun taniladi va `+998 90 123 45 67` ko'rinishiga keltiriladi.
+
+## 🗄 Baza zaxirasi (Render Free)
+
+Render Free'da disk har deploy/restartda o'chadi. Bot har 5 daqiqada (baza o'zgargan bo'lsa) va o'chayotganda bazaning siqilgan nusxasini zaxira chatiga yuborib **pin** qiladi; yangi ishga tushganda diskda baza bo'lmasa — pin qilingan nusxadan tiklaydi. Mijozlar, suhbatlar, darslar va taklif raqamlari (UM-00012) saqlanadi.
+
+- Zaxira chati: `ZAXIRA_CHAT_ID` (alohida yopiq guruh, bot **admin** bo'lishi kerak) yoki bo'sh bo'lsa — birinchi `OWNER_ID` ning bot bilan shaxsiy chati.
+- Pin qilingan `umatic_baza_....db.gz` faylni o'chirmang va pindan olmang.
+
+## 🎓 Botni takomillashtirish
+
+- **Har bir mijoz bilan:** bot mijozning uslubini va suhbat xulosasini eslab qoladi va keyingi xabarlarda (qaytib kelganda ham) shunga moslashadi.
+- **Menejer darslari:** `/dars Mijoz chegirma so'rasa, katta buyurtmada chegirma mumkinligini ayt` — bot barcha keyingi suhbatlarda shunga amal qiladi. `/darslar` — ro'yxat, `/dars_ochir 3` — o'chirish.
+- **Sinash:** egalar ID orqali taniladi va mijoz deb hisoblanmaydi. Botni mijoz sifatida sinash uchun `/sinov` (qayta bosilsa — o'chadi).
+
 ## 🧠 Botni o'qitish (bilimlar bazasi)
 
 Bot faqat `bilimlar/` papkasidagi fayllarda yozilgan faktlarga tayanadi:
@@ -59,7 +83,7 @@ Bot faqat `bilimlar/` papkasidagi fayllarda yozilgan faktlarga tayanadi:
 | `bilimlar/02_mahsulotlar.md` | Elektr dvigatellar: umumiy ma'lumot va mijozdan qaysi parametrlarni so'rash kerak (brend/seriyalarni shu yerga qo'shing) |
 | `bilimlar/03_sotuv_qoidalari.md` | Muloqot uslubi, sotuv bosqichlari, e'tirozlarga javoblar, taqiqlar |
 | `bilimlar/04_katalog.md` | umatic.uz dagi 40 ta dvigatel modeli (model, kVt, ob/min, V, IP) |
-| `bilimlar/tanishtiruv/uz_latn.txt`, `uz_cyrl.txt`, `ru.txt` | Mijozning **birinchi xabariga** avtomatik yuboriladigan taqdimot: kompaniya, 4 tur dvigatel, afzalliklar, chaqiriq. AI ga bog'liq emas — har doim to'liq chiqadi |
+| `bilimlar/tanishtiruv/uz_latn.txt`, `uz_cyrl.txt`, `ru.txt`, `en.txt` | Mijozning **birinchi xabariga** avtomatik yuboriladigan taqdimot: kompaniya, 4 tur dvigatel, afzalliklar, chaqiriq. AI ga bog'liq emas — har doim to'liq chiqadi |
 
 Qoidalar:
 - Faqat **aniq va tasdiqlangan** ma'lumot yozing — bot har bir gapni mijozga aytishi mumkin.
@@ -73,7 +97,7 @@ Qoidalar:
 ## ⚙️ O'rnatish
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt     # Python 3.10 yoki yangiroq
 ```
 
 `.env.example` dan nusxa olib `.env` yarating. Asosiy sozlamalar:
@@ -82,14 +106,17 @@ pip install -r requirements.txt
 |---|---|
 | `BOT_TOKEN` | @BotFather dan olingan token |
 | `GROQ_API_KEY` | https://console.groq.com/keys |
-| `OWNER_ID` | Egalar/menejerlar Telegram ID si (botga `/start` yuborsangiz ko'rsatiladi) |
+| `OWNER_ID` | **Majburiy.** Egalar/menejerlar Telegram ID si (botga `/id` yoki `/start` yuborsangiz ko'rsatiladi). `/start` bilan ega bo'lib bo'lmaydi |
+| `LIDLAR_CHAT_ID` | Lidlar guruhi chat ID si (guruhda `/chatid`) |
+| `ZAXIRA_CHAT_ID` | Baza zaxirasi chati (bo'sh — birinchi OWNER_ID, `0` — o'chirilgan) |
 | `NARX_OMBORDAN` | `0` — narxsiz PDF taklif (standart); `1` — ombor narx kiritadi |
 | `SKLAD_CHAT_ID` | Faqat `NARX_OMBORDAN=1` da: ombor mas'uli yoki ombor guruhi chat ID si (guruhda `/chatid`) |
 | `KOMPANIYA_NOMI` | `UMATIC` |
 | `KATTA_BUYURTMA_CHEGARASI`, `OLDINDAN_TOLOV_FOIZI` | Faqat `NARX_OMBORDAN=1` da, to'lov sharti: `100000000`, `50` |
 | `NARX_IZOHI` | Faqat `NARX_OMBORDAN=1` da: masalan `QQS bilan` |
 | `MODEL`, `FALLBACK_MODELS` | `openai/gpt-oss-120b`; zaxira: `qwen/qwen3.8-27b` (`gpt-oss-20b` o'zbek tilida sifatsiz — tavsiya etilmaydi) |
-| `GOOGLE_SHEET_WEBHOOK_URL` | Google Sheets CRM (pastga qarang) |
+| `GOOGLE_SHEET_WEBHOOK_URL` | Ixtiyoriy: Google Sheets CRM (pastga qarang) |
+| `TIMEZONE` | `Asia/Tashkent` — barcha vaqtlar mahalliy |
 
 ### Ombor guruhini sozlash (faqat `NARX_OMBORDAN=1`)
 1. Ombor mas'uli(lari) bilan Telegram guruh oching va botni guruhga qo'shing.
@@ -103,7 +130,7 @@ pip install -r requirements.txt
    ```
    Narx va sonni albatta `;` bilan ajrating (`12500000 100` kabi noaniq yozuv qabul qilinmaydi).
 
-### Google Sheets CRM
+### Google Sheets CRM (ixtiyoriy)
 1. Google Sheets → **Extensions → Apps Script**, `google_apps_script.gs` kodini joylashtiring.
 2. **Deploy → New deployment → Web app**: *Execute as: Me*, *Who has access: **Anyone***.
 3. `.../exec` havolasini `GOOGLE_SHEET_WEBHOOK_URL` ga yozing. Har bir mijoz — bitta qator (yangilanib boradi).
@@ -121,7 +148,7 @@ python -m unittest discover -s tests -v
 ```
 
 ### Buyruqlar (faqat egalar uchun)
-`/leads` · `/sorovlar` · `/export` · `/stats` · `/bilim` · `/chatid` · `/resume <chat_id>` · `/reset <chat_id>` · `/help`
+`/leads` · `/sorovlar` · `/export` · `/stats` · `/bilim` · `/chatid` · `/dars` · `/darslar` · `/dars_ochir` · `/sinov` · `/resume <chat_id>` · `/reset <chat_id>` · `/help`
 
 Menejer Telegram Business chatida mijozga o'zi yozsa, bot shu chatda 30 daqiqa jim turadi.
 
@@ -129,7 +156,7 @@ Menejer Telegram Business chatida mijozga o'zi yozsa, bot shu chatda 30 daqiqa j
 
 ## ⚠️ Cheklovlar
 
-- **Groq bepul tarifi:** har bir model uchun daqiqasiga ~8 000 token va kuniga 200 000 token. Bitta javob ~3 500–4 000 token, ya'ni bepul tarifda har model daqiqasiga ~2 ta, kuniga ~50 ta javob beradi. Bot limitga urilganda darhol zaxira modelga o'tadi, lekin **real sotuv uchun Groq Developer (pullik) tarifiga o'tish kerak** — aks holda mijozlar ko'p bo'lganda javoblar kechikadi yoki "menejer javob beradi" deyiladi.
-- **Render Free:** 15 daqiqa so'rov bo'lmasa uxlaydi (bot o'ziga ping yuborib buni oldini oladi); diskdagi baza deploy'da **o'chadi** — CRM tarixi uchun Google Sheets'ni albatta ulang.
+- **Groq bepul tarifi:** har bir model uchun daqiqasiga ~8 000 token va kuniga 200 000 token. Bitta javob ~3 500–4 000 token (bitta xabarga ko'pi bilan `MAX_AI_CHAQIRUV`=4 so'rov), ya'ni bepul tarifda har model daqiqasiga ~2 ta, kuniga ~50 ta javob beradi. Bot limitga urilganda darhol zaxira modelga o'tadi, lekin **real sotuv uchun Groq Developer (pullik) tarifiga o'tish kerak** — aks holda mijozlar ko'p bo'lganda javoblar kechikadi yoki "menejer javob beradi" deyiladi.
+- **Render Free:** 15 daqiqa so'rov bo'lmasa uxlaydi (bot o'ziga ping yuborib buni oldini oladi); diskdagi baza deploy'da o'chadi — bot uni Telegram zaxirasidan tiklaydi (yuqoriga qarang). Kutilmagan to'xtashda oxirgi ~5 daqiqalik o'zgarish yo'qolishi mumkin.
 - **Telegram Business:** bot mijozga faqat u oxirgi 24 soatda yozgan bo'lsa xabar yubora oladi. Taklif kechikib yuborilsa va xato bo'lsa, ombor chatida ogohlantirish chiqadi.
 - **Rasm/fayl:** AI rasmni ko'ra olmaydi — mijoz yuborgan rasm (masalan, dvigatel shildigi) menejer va ombor chatiga yuboriladi.

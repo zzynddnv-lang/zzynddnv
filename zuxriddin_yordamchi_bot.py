@@ -16,8 +16,10 @@ Ishga tushirish:
 """
 
 import asyncio
+import contextlib
 import csv
 import glob
+import hashlib
 import html
 import json
 import logging
@@ -48,7 +50,9 @@ except ModuleNotFoundError as exc:
 import database as db
 import sotuv
 import taklif_pdf
+import zaxira
 from sotuv import matn as tmatn
+from vaqt import hozir, hozir_matn
 
 
 # =====================================================================
@@ -67,6 +71,11 @@ def _idlarni_oqish(qiymat: str) -> set[int]:
 
 # Bot egasi(lari) / menejerlar. Faqat shu ID lar admin buyruqlaridan foydalanadi va bildirishnomalar oladi.
 OWNER_IDS = _idlarni_oqish(os.getenv("OWNER_ID", ""))
+
+# Lidlar guruhi: har bir mijoz kartochkasi va hodisalar (taklif, menejer kerak, buyurtma) shu guruhga yig'iladi.
+# Bo'sh bo'lsa - bot egalariga (OWNER_ID) shaxsiy xabar sifatida yuboriladi.
+_lidlar = os.getenv("LIDLAR_CHAT_ID", "").strip()
+LIDLAR_CHAT_ID = int(_lidlar) if _lidlar.lstrip("-").isdigit() else None
 
 # Ombor mas'uli yoki ombor guruhi chat ID si (narx so'rovlari shu yerga boradi).
 # Bo'sh bo'lsa - so'rovlar bot egalariga yuboriladi.
@@ -101,6 +110,10 @@ FON_TEKSHIRUV_ORALIQ = 5 * 60
 # Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
 SUHBAT_VERSIYASI = "umatic-savdo-1"
 LIMIT_KUTISH = 15                                                # hamma modellar limitda bo'lsa, kutish (soniya)
+MAX_AI_CHAQIRUV = int(os.getenv("MAX_AI_CHAQIRUV", "4"))         # bitta javob uchun AI so'rovlari chegarasi (token tejash)
+XABAR_KUTISH = float(os.getenv("XABAR_KUTISH", "4"))             # ketma-ket xabarlarni yig'ish uchun kutish (soniya)
+XABAR_MAX_KUTISH = 12                                            # mijoz to'xtovsiz yozsa ham shundan ortiq kutilmaydi
+TARIX_XABAR_UZUNLIGI = 500                                       # AI ga beriladigan eski bot javobi uzunligi (token tejash)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -113,6 +126,7 @@ groq_chat = None     # AI javoblari uchun: avtomatik qayta urinishsiz (limitda d
 egalar: dict[str, int] = {}
 chat_locks = defaultdict(asyncio.Lock)
 csv_lock = asyncio.Lock()
+SINOV_REJIMI: set[int] = set()   # /sinov - ega botni mijoz sifatida sinab ko'rmoqda
 
 
 # =====================================================================
@@ -167,30 +181,50 @@ def tanishtiruv_matni(til: str) -> str:
 
 def tizim_korsatmasi() -> str:
     # Ixcham yozilgan: Groq bepul tarifida bitta so'rov 7000 tokendan oshmasligi kerak
-    return f"""Sen "{KOMPANIYA_NOMI}" kompaniyasining Telegramdagi AI savdo menejerisan. Kompaniya ELEKTR DVIGATELLAR sotadi.
-Vazifang: dvigatellarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sotuvga olib borish, CRM uchun ma'lumot yig'ish.
+    darslar = f"\n\nMENEJER DARSLARI (ustuvor, albatta amal qil):\n{DARSLAR}" if DARSLAR else ""
+    return f"""Sen "{KOMPANIYA_NOMI}" kompaniyasining Telegramdagi savdo menejerisan. Kompaniya ELEKTR DVIGATELLAR sotadi.
+Sen shablon bilan javob beruvchi bot emassan - tajribali sotuvchi va mijozlar bilan ishlovchi menejersan: butun suhbatni, mijozning holati va kayfiyatini tushunib, suhbatni o'zing boshqarasan.
+
+MAQSAD (tabiiy suhbat orqali, shu tartibda): aloqa o'rnatish va tanishish (ism) -> ehtiyojni aniqlash -> KATALOGdan mos dvigatelni taklif qilish -> telefon raqamini olish. Telefon olinsa - lid menejerga o'tadi.
+
+USLUB:
+- Mijozning yozish uslubiga moslash: qisqa yozsa - qisqa; rasmiy bo'lsa - rasmiy; "aka", emoji ishlatsa - samimiy va xuddi shu ohangda. Uning so'zlarini ishlat.
+- Javob 1-3 qisqa gap. Ortiqcha so'z, takror, quruq reklama yo'q.
+- Savol faqat kerak bo'lsa va bittadan. Suhbatda javobi bor narsani so'rama. Mijoz savol bersa - avval aniq javob ber.
+- Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama. Kompaniya taqdimoti yuborilgan bo'lsa - takrorlama.
+- Suhbat davomida iliqroq va yaqinroq bo'l: ismini bilsang ismi bilan murojaat qil, avval aytganlarini eslab qol ("MIJOZ HAQIDA" bo'limi).
 
 QOIDALAR:
-1. Mijoz yozgan til va yozuvda javob ber (o'zbek lotin / o'zbek kirill / rus).
-2. Faqat BILIMLARdagi faktlar. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - mavjudlikni menejer aytadi. O'zingcha hisoblab model tavsiya qilma.
+1. Faqat JORIY HOLATdagi tilda yoz.
+2. Faqat BILIMLARdagi faktlar. Narx, qoldiq, muddat, chegirma, kafolat yoki yo'q modelni O'YLAB TOPMA. "Omborda bor/yo'q" dema - mavjudlikni menejer aytadi.
 3. {_narx_qoidasi()}
-4. FAOL SOTUVCHI BO'L, quruq so'roq qilma:
- - aniq ehtiyoj aytilmasa - mos dvigatel turlarini qisqa tanishtir va qaysi biri kerakligini so'ra;
- - kVt/ob/min aytilsa - KATALOGdan mos modelni nomi va xususiyatlari bilan darhol taklif qil ("katalogimizda ... bor");
- - mexanizm aytilsa (nasos, kran, konveyer, kompressor, shaxta) - mos turni va foydasini ayt;
- - har javobda bitta foyda (original, muhandislik tanlovi, KPD/energiya tejash, to'xtab qolmaslik) va keyingi qadamga savol.
-5. Javob 2-4 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
-6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. kVt, ob/min va miqdor ma'lum bo'lsa narx_sorash=true.
-7. Sen AI yordamchisan, odam ekanligingni da'vo qilma. Rasm/faylni ko'ra olmaysan - u menejerga yuborilgan.
-8. Boshqa mahsulot (nasos va h.k.) so'ralsa - hozircha faqat dvigatellar bilan ishlashimizni ayt, menejer_kerak=true.
-9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
-10. buyurtma_tasdiqlandi=true faqat mijoz yuborilgan taklifni aniq qabul qilsa.
+4. kVt/ob/min aytilsa - KATALOGdan mos modelni nomi bilan taklif qil. Mexanizm aytilsa - mos turni va foydasini ayt. kVt, ob/min va miqdor ma'lum bo'lsa narx_sorash=true.
+5. Telefonni tabiiy so'ra (masalan, taklif yuborilgach: menejer aniq narxni aytishi uchun). Rad etsa - qayta so'rama.
+6. O'zingni "bot" deb tanishtirma, lekin to'g'ridan-to'g'ri so'rashsa AI yordamchi ekaningni yashirma. Rasm/faylni ko'ra olmaysan - u menejerga yuborilgan.
+7. Boshqa mahsulot (nasos va h.k.) so'ralsa - hozircha faqat dvigatellar bilan ishlashimizni ayt, menejer_kerak=true.
+8. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
+9. buyurtma_tasdiqlandi=true faqat mijoz yuborilgan taklifni aniq qabul qilsa.
 
-JSON: mahsulotlar - suhbatdagi barcha pozitsiyalarning so'nggi holati (miqdor noma'lum = 0); mijoz - faqat mijoz o'zi aytgani; xulosa - menejer uchun 1-2 gap.
-Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, mahsulotlar[{{nomi, parametrlar, miqdor, birlik}}], narx_sorash, buyurtma_tasdiqlandi, bosqich, harorat, menejer_kerak, menejer_sababi, xulosa.
+JSON: mahsulotlar - suhbatdagi barcha pozitsiyalarning so'nggi holati (miqdor noma'lum = 0); mijoz - faqat mijoz o'zi aytgani; xulosa - menejer uchun 1-2 gap (oldingi xulosani yangilab); uslub - mijozning yozish uslubi va xarakteri (1 gap, keyingi suhbatlar uchun).
+Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, mahsulotlar[{{nomi, parametrlar, miqdor, birlik}}], narx_sorash, buyurtma_tasdiqlandi, bosqich, harorat, menejer_kerak, menejer_sababi, xulosa, uslub.{darslar}
 
 BILIMLAR:
 {BILIMLAR}"""
+
+
+DARSLAR = ""
+
+
+def darslarni_yuklash() -> str:
+    """Menejer /dars buyrug'i bilan o'rgatgan qoidalar (eng yangilari, qisqa)."""
+    qatorlar, uzunlik = [], 0
+    for d in db.get_darslar(limit=20):
+        qator = f"- {d['matn']}"
+        if uzunlik + len(qator) > 1500:
+            break
+        qatorlar.append(qator)
+        uzunlik += len(qator)
+    return "\n".join(reversed(qatorlar))
 
 
 def _narx_qoidasi() -> str:
@@ -215,10 +249,27 @@ def _pozitsiyalar_qisqa(pozitsiyalar: list[dict]) -> str:
 
 
 def suhbat_holati(chat_id: int) -> dict:
-    """AI ga beriladigan joriy holat: faol narx so'rovi va yuborilgan taklif."""
+    """AI ga beriladigan joriy holat: faol narx so'rovi, yuborilgan taklif va mijoz haqidagi xotira."""
     faol = db.get_faol_sorov(chat_id)
     taklif = db.get_oxirgi_taklif(chat_id)
-    return {"faol": faol, "taklif": taklif}
+    return {"faol": faol, "taklif": taklif, "lead": db.get_lead(chat_id)}
+
+
+def _mijoz_xotirasi(lead) -> str:
+    """Oldingi suhbatlardan mijoz haqida eslab qolinganlar - bot har safar mijozga yaqinroq bo'lishi uchun."""
+    if not lead:
+        return "- MIJOZ HAQIDA: yangi mijoz, hali tanish emassiz. Telefon hali olinmagan."
+    qismlar = []
+    if lead["full_name"]:
+        qismlar.append(f"ism: {lead['full_name']}")
+    if lead["tashkilot"]:
+        qismlar.append(f"kompaniya: {lead['tashkilot']}")
+    qismlar.append("telefon: olingan (qayta so'rama)" if lead["telefon"] else "telefon: hali olinmagan")
+    if lead["uslub"]:
+        qismlar.append(f"uslubi: {lead['uslub']}")
+    if lead["xulosa"]:
+        qismlar.append(f"oldingi xulosa: {qisqartir(lead['xulosa'], 300)}")
+    return "- MIJOZ HAQIDA: " + "; ".join(qismlar)
 
 
 def holat_matni(holat: dict, birinchi: bool, til: str = "uz_latn") -> str:
@@ -227,6 +278,7 @@ def holat_matni(holat: dict, birinchi: bool, til: str = "uz_latn") -> str:
         f"- MIJOZ TILI: {TIL_NOMLARI.get(til, til)}. \"javob\" matnini FAQAT shu tilda va yozuvda yoz, \"til\" = \"{til}\"."
     )
     qatorlar.append("- Bu suhbatdagi BIRINCHI javob." if birinchi else "- Suhbat davom etmoqda, salomlashma.")
+    qatorlar.append(_mijoz_xotirasi(holat.get("lead")))
     faol = holat.get("faol")
     if faol:
         qatorlar.append(
@@ -263,7 +315,7 @@ def holat_matni(holat: dict, birinchi: bool, til: str = "uz_latn") -> str:
 
 def init_runtime():
     """Bot va Groq API klientini yaratadi, bazani va bilimlarni tayyorlaydi."""
-    global bot, groq_client, groq_chat, BILIMLAR
+    global bot, groq_client, groq_chat, BILIMLAR, DARSLAR
 
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN topilmadi! .env fayliga yoki Render 'Environment' bo'limiga BOT_TOKEN ni kiriting.")
@@ -282,11 +334,17 @@ def init_runtime():
         logging.warning("Suhbat versiyasi yangilandi (%s): eski suhbat tarixi tozalandi, CRM saqlandi.", SUHBAT_VERSIYASI)
     BILIMLAR = bilimlarni_yuklash()
     logging.info("Bilimlar yuklandi: %s belgi", len(BILIMLAR))
+    DARSLAR = darslarni_yuklash()
 
     if OWNER_IDS:
         logging.info("Bot egalari (OWNER_ID): %s", ", ".join(map(str, sorted(OWNER_IDS))))
     else:
-        logging.warning("OWNER_ID o'rnatilmagan! Xavfsizlik uchun .env ga Telegram ID raqamingizni OWNER_ID sifatida yozing.")
+        logging.error(
+            "OWNER_ID o'rnatilmagan! Admin buyruqlari faqat Telegram Business ulangan akkaunt egasiga ishlaydi. "
+            "Telegram ID raqamingizni OWNER_ID ga yozing (botga /start yuborsangiz ko'rsatiladi)."
+        )
+    if LIDLAR_CHAT_ID is None:
+        logging.warning("LIDLAR_CHAT_ID o'rnatilmagan - lidlar bot egalariga shaxsiy xabar sifatida yuboriladi.")
     if SKLAD_CHAT_ID is None:
         logging.warning("SKLAD_CHAT_ID o'rnatilmagan - narx so'rovlari bot egalariga yuboriladi.")
 
@@ -322,6 +380,13 @@ def hisobot_oluvchilar(ega_id: int | None) -> set[int]:
     return idlar
 
 
+def hisobot_chatlari(ega_id: int | None = None) -> list[int]:
+    """Lid kartochkalari va bildirishnomalar yuboriladigan chat(lar): lidlar guruhi yoki egalar."""
+    if LIDLAR_CHAT_ID is not None:
+        return [LIDLAR_CHAT_ID]
+    return sorted(hisobot_oluvchilar(ega_id))
+
+
 def ombor_chatlari() -> list[int]:
     """Narx so'rovlari yuboriladigan chat(lar)."""
     if SKLAD_CHAT_ID is not None:
@@ -345,9 +410,7 @@ class EgaFilter(Filter):
 #  YORDAMCHI FUNKSIYALAR
 # =====================================================================
 
-PHONE_REGEX = re.compile(r'(\+?998[\s-]?\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}|(?:\b[389]\d[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b))')
-
-TIL_NOMLARI = {"uz_latn": "O'zbek (lotin)", "uz_cyrl": "O'zbek (kirill)", "ru": "Rus"}
+TIL_NOMLARI = {"uz_latn": "O'zbek (lotin)", "uz_cyrl": "O'zbek (kirill)", "ru": "Rus", "en": "Ingliz"}
 BOSQICH_NOMLARI = {
     "yangi": "🆕 Yangi", "qiziqish": "👀 Qiziqish", "ehtiyoj_aniqlanmoqda": "🔍 Ehtiyoj aniqlanmoqda",
     "narx_sorovi": "💰 Narx so'rovi", "taklif_berildi": "📄 Taklif berildi", "muzokara": "🤝 Muzokara",
@@ -396,8 +459,8 @@ async def javob_yubor(message: types.Message, matn: str, is_business: bool = Tru
 
 
 async def egalarga_yuborish(matn: str, ega_id: int | None = None, reply_markup=None):
-    """HTML xabarni barcha bot egalariga yuboradi."""
-    maqsadli_idlar = await asyncio.to_thread(hisobot_oluvchilar, ega_id)
+    """HTML xabarni lidlar guruhiga (yoki u sozlanmagan bo'lsa - barcha bot egalariga) yuboradi."""
+    maqsadli_idlar = await asyncio.to_thread(hisobot_chatlari, ega_id)
     if not maqsadli_idlar:
         logging.warning("Ega Telegram ID si topilmadi. .env ga OWNER_ID yozing yoki botga /start yuboring.")
         return
@@ -443,12 +506,20 @@ def _model_parametrlari(model: str) -> dict:
     return {"max_completion_tokens": 800}
 
 
-async def _groq_sorov(model: str, messages: list) -> dict | None:
+class ByudjetTugadi(Exception):
+    """Bitta javob uchun AI so'rovlari chegarasi tugadi (token tejash)."""
+
+
+async def _groq_sorov(model: str, messages: list, byudjet: list | None = None) -> dict | None:
     """
     Groq Structured Outputs (qat'iy JSON sxema). Model sxemaga mos JSON bera olmasa (Groq 400
     json_validate_failed), oddiy JSON rejimida qayta so'raladi - natija baribir dasturda tekshiriladi.
     """
-    umumiy = dict(model=model, temperature=0.4, messages=messages, **_model_parametrlari(model))
+    if byudjet is not None:
+        if byudjet[0] <= 0:
+            raise ByudjetTugadi()
+        byudjet[0] -= 1
+    umumiy = dict(model=model, temperature=0.5, messages=messages, **_model_parametrlari(model))
     try:
         resp = await groq_chat.chat.completions.create(
             response_format={
@@ -490,11 +561,17 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     Muammo bo'lsa bir marta qayta so'raydi. Model ishlamasa - zaxira modellarga o'tadi.
     """
     birinchi = not any(m.get("role") == "assistant" for m in tarix)
+    # Uzun eski bot javoblari (masalan, taklif matni) qisqartiriladi - token tejaladi
+    qisqa_tarix = [
+        {**m, "content": qisqartir(m["content"], TARIX_XABAR_UZUNLIGI)} if m.get("role") == "assistant" else m
+        for m in tarix
+    ]
     messages = (
         [{"role": "system", "content": tizim_korsatmasi()}]
-        + tarix
+        + qisqa_tarix
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
+    byudjet = [MAX_AI_CHAQIRUV]
     modellar = list(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR))
     # Narxli taklif yuborilgan bo'lsagina AI undagi raqamlarni aytishi mumkin
     taklif_bor = holat.get("taklif") is not None and bool(holat["taklif"]["narxlar"])
@@ -503,11 +580,12 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     oldingilar = [m["content"] for m in tarix if m.get("role") == "assistant"][-2:]
 
     for urinish in range(2):
-        natija, oxirgi_xato, hammasi_limit = await _modellarni_sinash(modellar, messages, til, taklif_bor, oldingilar)
+        natija, oxirgi_xato, hammasi_limit = await _modellarni_sinash(
+            modellar, messages, til, taklif_bor, oldingilar, byudjet)
         if natija is not None:
             natija["_birinchi"] = birinchi
             return natija
-        if not hammasi_limit or urinish == 1:
+        if not hammasi_limit or urinish == 1 or byudjet[0] <= 0:
             break
         logging.warning("Barcha modellar limitda, %s soniya kutilmoqda...", LIMIT_KUTISH)
         await asyncio.sleep(LIMIT_KUTISH)
@@ -519,7 +597,8 @@ def _limit_xatosimi(e: Exception) -> bool:
     return e.__class__.__name__ == "RateLimitError" or "429" in str(e) or "rate_limit" in str(e)
 
 
-async def _modellarni_sinash(modellar: list, messages: list, til: str, taklif_bor: bool, oldingilar: list[str] = ()):
+async def _modellarni_sinash(modellar: list, messages: list, til: str, taklif_bor: bool, oldingilar: list[str] = (),
+                            byudjet: list | None = None):
     """
     Modellarni navbat bilan sinaydi. Qaytaradi: (natija | None, oxirgi_xato, hammasi_limitdami).
     - Narx o'ylab topilsa va tuzatilmasa: xavfsiz tayyor matn bilan almashtiriladi.
@@ -533,7 +612,7 @@ async def _modellarni_sinash(modellar: list, messages: list, til: str, taklif_bo
     til_xatolari = 0
     for m in modellar:
         try:
-            natija = await _groq_sorov(m, messages)
+            natija = await _groq_sorov(m, messages, byudjet)
             if natija is None:
                 logging.warning("Model '%s' yaroqsiz javob qaytardi, zaxira model tekshirilmoqda...", m)
                 continue
@@ -547,7 +626,9 @@ async def _modellarni_sinash(modellar: list, messages: list, til: str, taklif_bo
                     qayta = await _groq_sorov(m, messages + [
                         {"role": "assistant", "content": json.dumps(natija, ensure_ascii=False)},
                         {"role": "system", "content": "Javobni tuzat: " + " ".join(muammolar)},
-                    ])
+                    ], byudjet)
+                except ByudjetTugadi:
+                    qayta = None
                 except Exception as e:
                     logging.warning("Model '%s' qayta so'rovida xato: %s", m, e)
                     qayta = None
@@ -568,6 +649,8 @@ async def _modellarni_sinash(modellar: list, messages: list, til: str, taklif_bo
                 logging.info("Javob zaxira model '%s' orqali olindi.", m)
             natija["til"] = til
             return natija, None, False
+        except ByudjetTugadi:
+            break
         except Exception as e:
             oxirgi_xato = e
             if _limit_xatosimi(e):
@@ -608,11 +691,21 @@ async def google_sheetsga_yozish(karta: dict) -> bool | None:
             async with session.post(
                 webhook_url, json=karta, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                if resp.status < 400:
-                    logging.info("Google Sheets jadvaliga saqlandi: %s", karta.get("ism"))
-                    return True
-                logging.warning("Google Sheetsga yuborishda server statusi: %s", resp.status)
-                return False
+                matn = await resp.text()
+                if resp.status >= 400:
+                    logging.warning("Google Sheetsga yuborishda server statusi: %s", resp.status)
+                    return False
+                # Apps Script xatoda ham 200 qaytaradi; noto'g'ri deploy qilinsa - Google login sahifasi (HTML)
+                try:
+                    javob = json.loads(matn)
+                except ValueError:
+                    logging.warning("Google Sheets JSON qaytarmadi (Deploy: 'Who has access: Anyone' ni tekshiring).")
+                    return False
+                if not (isinstance(javob, dict) and javob.get("ok") is True):
+                    logging.warning("Google Sheets xatosi: %s", qisqartir(matn, 300))
+                    return False
+                logging.info("Google Sheets jadvaliga saqlandi: %s", karta.get("ism"))
+                return True
     except Exception as e:
         logging.error("Google Sheetsga yozishda xatolik: %s", e)
         return False
@@ -646,14 +739,6 @@ async def csv_yangilash() -> bool:
             return False
 
 
-def _sheets_matni(holat: bool | None) -> str:
-    if holat is True:
-        return "✅ Google Sheetsga yozildi"
-    if holat is False:
-        return "⚠️ Google Sheetsga yozib bo'lmadi"
-    return "ℹ️ Google Sheets ulanmagan"
-
-
 async def crmga_sinxronlash(chat_id: int) -> bool | None:
     """Mijoz kartochkasini CSV va Google Sheetsga yuboradi."""
     lead = await asyncio.to_thread(db.get_lead, chat_id)
@@ -679,7 +764,7 @@ async def crmga_sinxronlash(chat_id: int) -> bool | None:
 
 
 def lead_kartochkasi(lead, sarlavha: str) -> str:
-    """Egaga yuboriladigan mijoz kartochkasi (HTML)."""
+    """Lidlar guruhiga / egaga yuboriladigan mijoz kartochkasi (HTML). Har bir maydon oldindan qisqartiriladi."""
     qatorlar = [
         f"{sarlavha}\n",
         f"👤 <b>Mijoz:</b> {mijoz_havolasi(lead['telegram_id'], lead['full_name'], lead['username'] or '')}",
@@ -697,21 +782,110 @@ def lead_kartochkasi(lead, sarlavha: str) -> str:
     )
     if lead["xulosa"]:
         qatorlar.append(f"📝 {h(qisqartir(lead['xulosa'], 500))}")
+    qatorlar.append(f"🆔 Chat: <code>{lead['chat_id']}</code> | 🕒 {h(lead['updated_at'] or lead['created_at'] or '')}")
     return "\n".join(qatorlar)
+
+
+def lid_qisqa(lead) -> str:
+    """Fayl izohi (caption, 1024 belgi) uchun qisqa kartochka - HTML kesilib buzilmaydi."""
+    if not lead:
+        return ""
+    qism = [f"👤 {mijoz_havolasi(lead['telegram_id'], qisqartir(lead['full_name'], 60), lead['username'] or '')}"]
+    if lead["telefon"]:
+        qism.append(f"📞 {h(lead['telefon'])}")
+    if lead["tashkilot"]:
+        qism.append(f"🏢 {h(qisqartir(lead['tashkilot'], 60))}")
+    return f"LID #{lead['id']} | " + " | ".join(qism)
+
+
+def _lid_tayyormi(lead) -> bool:
+    """Lid guruhga qachon chiqadi: kontakt olinganda yoki savdo jarayoni boshlanganda."""
+    return bool(lead["telefon"]) or lead["bosqich"] in ("narx_sorovi", "taklif_berildi", "muzokara", "kelishildi")
+
+
+def _karta_msglari(lead) -> dict[str, int]:
+    try:
+        return {str(k): int(v) for k, v in json.loads(lead["karta_msglar"] or "{}").items()}
+    except (ValueError, TypeError, AttributeError):
+        return {}
+
+
+async def lid_kartasini_yangilash(chat_id: int, ega_id: int | None = None, majburiy: bool = False) -> dict[str, int]:
+    """
+    Mijozning lidlar guruhidagi YAGONA kartochkasini yaratadi yoki tahrirlaydi (har bir mijoz - bitta xabar).
+    Hodisalar (taklif, menejer kerak, buyurtma) shu kartochkaga javob (reply) sifatida yoziladi.
+    Qaytaradi: {chat_id: message_id}.
+    """
+    lead = await asyncio.to_thread(db.get_lead, chat_id)
+    if not lead:
+        return {}
+    msglar = _karta_msglari(lead)
+    if not msglar and not (majburiy or _lid_tayyormi(lead)):
+        return {}
+
+    matn = lead_kartochkasi(lead, f"🔔 <b>LID #{lead['id']}</b>")
+    # Vaqt qatori har safar o'zgaradi - xesh unsiz hisoblanadi (keraksiz tahrirlar bo'lmasin)
+    xesh = hashlib.sha1(matn.rsplit("🕒", 1)[0].encode()).hexdigest()
+    if msglar and lead["karta_hash"] == xesh:
+        return msglar
+
+    for target in await asyncio.to_thread(hisobot_chatlari, ega_id):
+        mid = msglar.get(str(target))
+        if mid:
+            try:
+                await bot.edit_message_text(chat_id=target, message_id=mid, text=matn, parse_mode="HTML")
+                continue
+            except TelegramAPIError as e:
+                if "not modified" in str(e):
+                    continue
+                logging.info("Lid kartochkasini tahrirlab bo'lmadi (%s), yangisi yuboriladi: %s", target, e)
+            except Exception as e:
+                logging.warning("Lid kartochkasini tahrirlashda xato: %s", e)
+                continue
+        try:
+            msg = await bot.send_message(chat_id=target, text=matn, parse_mode="HTML")
+            msglar[str(target)] = msg.message_id
+        except Exception as e:
+            logging.warning("Lid kartochkasini (%s) ga yuborib bo'lmadi: %s", target, e)
+
+    await asyncio.to_thread(db.upsert_lead, chat_id, karta_msglar=json.dumps(msglar), karta_hash=xesh)
+    await crmga_sinxronlash(chat_id)  # ixtiyoriy: CSV va (sozlangan bo'lsa) Google Sheets
+    return msglar
+
+
+async def lid_hodisasi(chat_id: int, matn: str, ega_id: int | None = None, hujjat: tuple[bytes, str] | None = None):
+    """
+    Mijoz bo'yicha hodisani lidlar guruhiga (kartochkaga javob qilib) yuboradi.
+    hujjat = (baytlar, fayl_nomi) - masalan, mijozga yuborilgan PDF taklif nusxasi.
+    """
+    msglar = await lid_kartasini_yangilash(chat_id, ega_id, majburiy=True)
+    for target in await asyncio.to_thread(hisobot_chatlari, ega_id):
+        javob_id = msglar.get(str(target))
+        qoshimcha = {"reply_to_message_id": javob_id, "allow_sending_without_reply": True} if javob_id else {}
+        try:
+            if hujjat:
+                # Izoh 1024 belgidan oshsa - fayl izohsiz, matn alohida (HTML kesilib buzilmasligi uchun)
+                izoh = matn if len(matn) <= 1000 else None
+                await bot.send_document(
+                    chat_id=target, document=types.BufferedInputFile(hujjat[0], filename=hujjat[1]),
+                    caption=izoh, parse_mode="HTML" if izoh else None, **qoshimcha,
+                )
+                if izoh is None:
+                    await bot.send_message(chat_id=target, text=matn, parse_mode="HTML", **qoshimcha)
+            else:
+                await bot.send_message(chat_id=target, text=matn, parse_mode="HTML", **qoshimcha)
+        except Exception as e:
+            logging.warning("Lid hodisasini (%s) ga yuborib bo'lmadi: %s", target, e)
 
 
 def _telefon_topish(natija: dict, xabar_matni: str) -> str:
     """Telefon: avval mijoz xabaridan (aniq), keyin AI ajratganidan (tekshirilgan holda)."""
-    m = PHONE_REGEX.search(xabar_matni or "")
-    if m:
-        return m.group(0)
-    m = PHONE_REGEX.search(natija["mijoz"]["telefon"])
-    return m.group(0) if m else ""
+    return sotuv.telefon_topish(xabar_matni) or sotuv.telefon_topish(natija["mijoz"]["telefon"])
 
 
 async def crm_yangilash(chat_id: int, mijoz: types.User, natija: dict, holat: dict,
                         xabar_matni: str, business_connection_id: str | None, ega_id: int | None):
-    """AI natijasi asosida mijoz kartochkasini yangilaydi, omborga so'rov va egalarga bildirishnoma yuboradi."""
+    """AI natijasi asosida mijoz kartochkasini yangilaydi, taklif yuboradi va lidlar guruhini xabardor qiladi."""
     lead = await asyncio.to_thread(db.get_lead, chat_id)
     eski_bosqich = lead["bosqich"] if lead else ""
     bosqich = sotuv.bosqichni_birlashtirish(eski_bosqich, natija["bosqich"])
@@ -726,12 +900,12 @@ async def crm_yangilash(chat_id: int, mijoz: types.User, natija: dict, holat: di
 
     pozitsiyalar = natija["mahsulotlar"]
     telefon = _telefon_topish(natija, xabar_matni)
-    mazmunli = bool(lead) or bool(pozitsiyalar) or bool(telefon) or any(natija["mijoz"].values())
+    mazmunli = bool(lead) or bool(pozitsiyalar) or bool(telefon) or bool(natija["ehtiyoj"]) or any(natija["mijoz"].values())
     if not mazmunli:
         return
 
     username = f"@{mijoz.username}" if mijoz.username else ""
-    yangi = await asyncio.to_thread(
+    await asyncio.to_thread(
         db.upsert_lead, chat_id,
         full_name=natija["mijoz"]["ism"] or (lead["full_name"] if lead else "") or mijoz.full_name,
         username=username,
@@ -744,15 +918,8 @@ async def crm_yangilash(chat_id: int, mijoz: types.User, natija: dict, holat: di
         bosqich=bosqich,
         harorat=natija["harorat"],
         xulosa=natija["xulosa"],
+        uslub=natija.get("uslub", ""),
     )
-
-    if yangi or bosqich != eski_bosqich:
-        sheets = await crmga_sinxronlash(chat_id)
-        if yangi:
-            lead = await asyncio.to_thread(db.get_lead, chat_id)
-            await egalarga_yuborish(
-                lead_kartochkasi(lead, "🔔 <b>YANGI MIJOZ</b>") + f"\n\n<i>{_sheets_matni(sheets)}</i>", ega_id
-            )
 
     # Pozitsiya va miqdor aniq bo'lsa: omborga narx so'rovi yoki mijozga narxsiz PDF taklif
     if natija["narx_sorash"] and pozitsiyalar and all(p["miqdor"] > 0 for p in pozitsiyalar):
@@ -761,27 +928,29 @@ async def crm_yangilash(chat_id: int, mijoz: types.User, natija: dict, holat: di
         else:
             await pdf_taklif_yuborish(chat_id, mijoz, natija, business_connection_id, ega_id)
 
+    # Lidlar guruhidagi kartochka (kontakt olinganda paydo bo'ladi, keyin har o'zgarishda yangilanadi)
+    await lid_kartasini_yangilash(chat_id, ega_id)
+
     if kelishildi_yangi:
         await asyncio.to_thread(db.mark_chat_completed, chat_id)
-        lead = await asyncio.to_thread(db.get_lead, chat_id)
         taklif_qatori = f"📄 Taklif {taklif_pdf.taklif_raqami(taklif['id'])}"
         if taklif["narxlar"]:
             _, jami = sotuv.hisoblash(json.loads(taklif["pozitsiyalar"]), json.loads(taklif["narxlar"]))
             oldindan, qolgan = sotuv.tolov_qismlari(jami)
             tolov = f"{sotuv.son_format(oldindan)} so'm oldindan" + (f", {sotuv.son_format(qolgan)} so'm olib ketishdan oldin" if qolgan else "")
             taklif_qatori += f": <b>{sotuv.son_format(jami)} so'm</b>\n💳 {h(tolov)}"
-        await egalarga_yuborish(
-            lead_kartochkasi(lead, "🎉 <b>MIJOZ BUYURTMANI TASDIQLADI</b>")
-            + f"\n\n{taklif_qatori}\n➡️ Mijoz bilan bog'lanib, narx va schyotni rasmiylashtiring.",
+        await lid_hodisasi(
+            chat_id,
+            f"🎉 <b>MIJOZ BUYURTMANI TASDIQLADI</b>\n\n{taklif_qatori}\n"
+            "➡️ Mijoz bilan bog'lanib, narx va schyotni rasmiylashtiring.",
             ega_id,
         )
     elif natija["menejer_kerak"] and await asyncio.to_thread(db.menejer_chaqirish_mumkinmi, chat_id, 60):
-        lead = await asyncio.to_thread(db.get_lead, chat_id)
-        await egalarga_yuborish(
-            lead_kartochkasi(lead, "🙋 <b>MENEJER ARALASHUVI KERAK</b>")
-            + f"\n\n❗️ <b>Sabab:</b> {h(natija['menejer_sababi'] or '-')}"
-            + f"\n💬 <b>Oxirgi xabar:</b> {h(qisqartir(xabar_matni, 300))}"
-            + f"\n🆔 Chat: <code>{chat_id}</code>",
+        await lid_hodisasi(
+            chat_id,
+            "🙋 <b>MENEJER ARALASHUVI KERAK</b>"
+            + f"\n\n❗️ <b>Sabab:</b> {h(qisqartir(natija['menejer_sababi'] or '-', 300))}"
+            + f"\n💬 <b>Oxirgi xabar:</b> {h(qisqartir(xabar_matni, 300))}",
             ega_id,
         )
 
@@ -839,7 +1008,7 @@ async def pdf_taklif_yuborish(chat_id: int, mijoz: types.User, natija: dict,
 
     if yuborildi:
         await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("kutilmoqda",), "yuborildi")
-        await asyncio.to_thread(db.update_sorov, sorov_id, yuborilgan_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        await asyncio.to_thread(db.update_sorov, sorov_id, yuborilgan_at=hozir_matn())
         await asyncio.to_thread(db.add_message, chat_id, "assistant", f"[PDF: {raqam}] {izoh}")
         await asyncio.to_thread(db.upsert_lead, chat_id, bosqich=sotuv.bosqichni_birlashtirish(
             lead["bosqich"] if lead else "", "taklif_berildi"))
@@ -848,21 +1017,11 @@ async def pdf_taklif_yuborish(chat_id: int, mijoz: types.User, natija: dict,
     else:
         await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("kutilmoqda",), "bekor")
         sarlavha = f"⚠️ <b>TAKLIF {raqam} MIJOZGA YUBORILMADI</b>"
-        keyingi = "➡️ Faylni mijozga o'zingiz yuboring."
+        keyingi = "➡️ Faylni mijozga o'zingiz yuboring (bot mijozga faqat u oxirgi 24 soatda yozgan bo'lsa yubora oladi)."
 
-    sheets = await crmga_sinxronlash(chat_id)
     lead = await asyncio.to_thread(db.get_lead, chat_id)
-    matn = (lead_kartochkasi(lead, sarlavha) if lead else sarlavha) + f"\n\n{keyingi}\n<i>{_sheets_matni(sheets)}</i>"
-    for target in await asyncio.to_thread(hisobot_oluvchilar, ega_id):
-        try:
-            await bot.send_document(
-                chat_id=target,
-                document=types.BufferedInputFile(pdf, filename=fayl_nomi),
-                caption=qisqartir(matn, 1000),
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logging.warning("Taklif nusxasini egaga (%s) yuborib bo'lmadi: %s", target, e)
+    matn = f"{sarlavha}\n{lid_qisqa(lead)}\n\n{keyingi}"
+    await lid_hodisasi(chat_id, matn, ega_id, hujjat=(pdf, fayl_nomi))
 
 
 # =====================================================================
@@ -1041,12 +1200,11 @@ async def ombor_tugmasi(callback: types.CallbackQuery):
                 await asyncio.to_thread(db.add_message, sorov["chat_id"], "assistant", xabar)
         natija = "❌ Omborda yo'q — mijozga xabar berildi" if not xato else f"❌ Omborda yo'q — ⚠️ mijozga yuborib bo'lmadi: {h(xato)}"
         await _sklad_xabarini_belgilash(callback, f"{natija} ({kim})")
-        lead = await asyncio.to_thread(db.get_lead, sorov["chat_id"])
-        if lead:
-            await egalarga_yuborish(
-                lead_kartochkasi(lead, f"📭 <b>SO'ROV #{sorov_id}: OMBORDA YO'Q</b>")
-                + "\n\n➡️ Mijozga muqobil variant yoki buyurtma asosida yetkazib berishni taklif qiling."
-            )
+        await lid_hodisasi(
+            sorov["chat_id"],
+            f"📭 <b>SO'ROV #{sorov_id}: OMBORDA YO'Q</b>"
+            "\n\n➡️ Mijozga muqobil variant yoki buyurtma asosida yetkazib berishni taklif qiling.",
+        )
         await callback.answer()
 
     elif amal == "ok":  # Tijorat taklifini mijozga yuborish
@@ -1068,8 +1226,9 @@ async def ombor_tugmasi(callback: types.CallbackQuery):
                 await callback.answer("Yuborib bo'lmadi", show_alert=True)
                 return
             await asyncio.to_thread(db.sorov_holatini_ozgartirish, sorov_id, ("yuborilmoqda",), "yuborildi")
-            await asyncio.to_thread(db.update_sorov, sorov_id, summa=jami, yuborilgan_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            await asyncio.to_thread(db.update_sorov, sorov_id, summa=jami, yuborilgan_at=hozir_matn())
             await asyncio.to_thread(db.add_message, sorov["chat_id"], "assistant", taklif)
+            pdf = await narxli_pdf_yuborish(sorov, pozitsiyalar, narxlar)
 
         lead = await asyncio.to_thread(db.get_lead, sorov["chat_id"])
         await asyncio.to_thread(
@@ -1077,14 +1236,45 @@ async def ombor_tugmasi(callback: types.CallbackQuery):
             bosqich=sotuv.bosqichni_birlashtirish(lead["bosqich"] if lead else "", "taklif_berildi"),
             summa=jami,
         )
-        sheets = await crmga_sinxronlash(sorov["chat_id"])
-        await _sklad_xabarini_belgilash(
-            callback, f"✅ Mijozga yuborildi ({kim}). Jami: {sotuv.son_format(jami)} so'm. <i>{_sheets_matni(sheets)}</i>"
+        await _sklad_xabarini_belgilash(callback, f"✅ Mijozga yuborildi ({kim}). Jami: {sotuv.son_format(jami)} so'm.")
+        lead = await asyncio.to_thread(db.get_lead, sorov["chat_id"])
+        await lid_hodisasi(
+            sorov["chat_id"],
+            f"📄 <b>TIJORAT TAKLIFI {taklif_pdf.taklif_raqami(sorov_id)} YUBORILDI</b>: {sotuv.son_format(jami)} so'm\n"
+            f"{lid_qisqa(lead)}",
+            hujjat=pdf,
         )
         await callback.answer("Yuborildi ✅")
 
     else:
         await callback.answer()
+
+
+async def narxli_pdf_yuborish(sorov, pozitsiyalar: list[dict], narxlar: list[dict]) -> tuple[bytes, str] | None:
+    """Ombor narxlari bilan tijorat taklifi PDF ini mijozga yuboradi (matndagi raqamlar bilan bir xil)."""
+    til = sorov["til"] or "uz_latn"
+    lead = await asyncio.to_thread(db.get_lead, sorov["chat_id"])
+    try:
+        pdf = await asyncio.to_thread(
+            taklif_pdf.taklif_pdf, sorov["id"], til, pozitsiyalar,
+            lead["full_name"] if lead else "", lead["tashkilot"] if lead and lead["tashkilot"] else "",
+            lead["telefon"] if lead and lead["telefon"] else "",
+            tmatn("taklif_predmeti", til).format(soni=len(pozitsiyalar)),
+            None, narxlar, sorov["ombor_izohi"] or "",
+        )
+    except Exception as e:
+        logging.exception("Narxli PDF yaratishda xato: %s", e)
+        return None
+    fayl = taklif_pdf.fayl_nomi(sorov["id"], til)
+    try:
+        await bot.send_document(
+            chat_id=sorov["chat_id"], document=types.BufferedInputFile(pdf, filename=fayl),
+            caption=tmatn("taklif_izoh", til).format(raqam=taklif_pdf.taklif_raqami(sorov["id"])),
+            business_connection_id=sorov["business_connection_id"] or None,
+        )
+    except TelegramAPIError as e:
+        logging.warning("Narxli PDF ni mijozga yuborib bo'lmadi (matn yuborilgan): %s", e)
+    return pdf, fayl
 
 
 _PROMPT_REGEX = re.compile(r"So'rov #(\d+): SHU XABARGA JAVOB")
@@ -1156,7 +1346,9 @@ BUYRUQLAR_MATNI = (
     "• /export — Barcha mijozlar (Excel/CSV)\n"
     "• /stats — Statistika\n"
     "• /bilim — Bilimlar bazasi holati\n"
-    "• /chatid — Joriy chat ID (ombor guruhini sozlash uchun)\n"
+    "• /chatid — Joriy chat ID (lidlar/ombor guruhini sozlash uchun)\n"
+    "• /dars &lt;matn&gt; — Botga yangi qoida o'rgatish · /darslar · /dars_ochir &lt;id&gt;\n"
+    "• /sinov — Botni mijoz sifatida sinab ko'rish (yoqish/o'chirish)\n"
     "• /resume &lt;chat_id&gt; — Chatda botni qayta yoqish\n"
     "• /reset &lt;chat_id&gt; — Chat xotirasini tozalash\n"
     "• /help — Qo'llanma"
@@ -1170,16 +1362,14 @@ async def start_komandasi(message: types.Message):
     if user is None:
         return
 
-    ega = egami(user.id)
-    # OWNER_ID o'rnatilmagan va hali hech kim ro'yxatdan o'tmagan bo'lsa - birinchi foydalanuvchi ega bo'ladi
-    if not ega and not OWNER_IDS and not db.get_owner_ids() and not egalar:
-        ega = True
-        logging.warning("Birinchi ega /start orqali ro'yxatga olindi: %s. OWNER_ID ni .env ga yozish tavsiya etiladi.", user.id)
+    # Egalik faqat OWNER_ID (yoki Telegram Business ulangan akkaunt) orqali - /start bilan ega bo'lib bo'lmaydi
+    ega = egami(user.id) and user.id not in SINOV_REJIMI
 
     if not ega:
         if message.chat.type != "private":
             return
-        til = "ru" if (user.language_code or "").startswith("ru") else "uz_latn"
+        kod = (user.language_code or "")[:2]
+        til = {"ru": "ru", "en": "en"}.get(kod, "uz_latn")
         salom = tanishtiruv_matni(til)
         await asyncio.to_thread(db.save_chat_meta, message.chat.id, user.id, None, til)
         await asyncio.to_thread(db.add_message, message.chat.id, "assistant", TAQDIMOT_BELGISI)
@@ -1187,14 +1377,25 @@ async def start_komandasi(message: types.Message):
         await message.answer(salom)
         return
 
-    db.save_owner_id(user.id)
+    jarayon = (
+        "narxni ombordan so'rab tijorat taklifi yuboraman" if NARX_OMBORDAN
+        else "mijozga tijorat taklifini (PDF) yuboraman"
+    )
     await message.answer(
         f"Assalomu alaykum, <b>{h(user.full_name)}</b>!\n\n"
-        f"🤖 Men <b>{h(KOMPANIYA_NOMI)}</b> savdo menejeri botiman: mijozlarga mahsulotlarni tanishtiraman, "
-        "ehtiyojini aniqlayman, narxni ombordan so'rab tijorat taklifi yuboraman va hammasini CRM ga yig'aman.\n\n"
-        f"🆔 Sizning Telegram ID: <code>{user.id}</code>"
-        + ("" if OWNER_IDS else "\n⚠️ Xavfsizlik uchun ushbu raqamni <code>.env</code> / Render sozlamalariga <code>OWNER_ID</code> sifatida yozing.")
-        + "\n\n" + BUYRUQLAR_MATNI,
+        f"🤖 Men <b>{h(KOMPANIYA_NOMI)}</b> savdo menejeriman: mijozlarga dvigatellarni tanishtiraman, "
+        f"ehtiyojini aniqlayman, {jarayon}, kontaktini olib lidni guruhga yuboraman.\n\n"
+        f"🆔 Sizning Telegram ID: <code>{user.id}</code>\n\n" + BUYRUQLAR_MATNI,
+        parse_mode="HTML",
+    )
+
+
+async def _id_tekshiruvi(message: types.Message):
+    """OWNER_ID o'rnatilmagan bo'lsa: foydalanuvchiga o'z ID sini ko'rsatadi (ega bo'lish uchun Render'ga yozish kerak)."""
+    user = message.from_user
+    await message.answer(
+        f"🆔 Sizning Telegram ID: <code>{user.id}</code>\n"
+        "Bot egasi bo'lish uchun ushbu raqamni Render sozlamalariga <code>OWNER_ID</code> sifatida yozing.",
         parse_mode="HTML",
     )
 
@@ -1208,14 +1409,27 @@ async def chatid_komandasi(message: types.Message):
     )
 
 
+@dp.message(Command("id"))
+async def id_komandasi(message: types.Message):
+    if message.from_user and message.chat.type == "private":
+        await _id_tekshiruvi(message)
+
+
 @dp.message(Command("leads"), EgaFilter())
 async def leads_komandasi(message: types.Message):
-    oxirgi = db.get_recent_leads(limit=5)
+    oxirgi = await asyncio.to_thread(db.get_recent_leads, 5)
     if not oxirgi:
         await message.answer("Hozircha mijozlar yo'q.")
         return
-    bloklar = [lead_kartochkasi(r, f"<b>{i}.</b> <i>{h(r['updated_at'] or r['created_at'])}</i>") for i, r in enumerate(oxirgi, 1)]
-    await message.answer(qisqartir("\n\n".join(bloklar), 4000), parse_mode="HTML")
+    # Har bir kartochka butunligicha - HTML o'rtasidan kesilmaydi (Telegram limiti 4096)
+    bolak = ""
+    for i, lead in enumerate(oxirgi, 1):
+        karta = lead_kartochkasi(lead, f"<b>{i}. LID #{lead['id']}</b>")
+        if bolak and len(bolak) + len(karta) + 2 > 4000:
+            await message.answer(bolak, parse_mode="HTML")
+            bolak = ""
+        bolak = f"{bolak}\n\n{karta}" if bolak else karta
+    await message.answer(bolak, parse_mode="HTML")
 
 
 @dp.message(Command("sorovlar"), EgaFilter())
@@ -1239,7 +1453,7 @@ async def export_komandasi(message: types.Message):
         await message.answer("CSV faylni shakllantirishda xatolik yuz berdi.")
         return
     try:
-        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"{KOMPANIYA_NOMI}_Mijozlar_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+        fayl = types.FSInputFile(LEADLAR_FAYLI, filename=f"{KOMPANIYA_NOMI}_Mijozlar_{hozir().strftime('%Y%m%d_%H%M')}.csv")
         await message.answer_document(document=fayl, caption="📊 Barcha mijozlar (Excel'da ochiladi)")
     except Exception as e:
         await message.answer(f"Faylni yuborishda xatolik: {h(e)}", parse_mode="HTML")
@@ -1304,6 +1518,63 @@ async def reset_komandasi(message: types.Message):
     await message.answer(f"✅ Chat <code>{target_id}</code> xotirasi tozalandi.", parse_mode="HTML")
 
 
+@dp.message(Command("dars"), EgaFilter())
+async def dars_komandasi(message: types.Message):
+    """Menejer botga yangi qoida o'rgatadi - keyingi barcha suhbatlarda qo'llaniladi."""
+    global DARSLAR
+    matn = (message.text or "").split(maxsplit=1)
+    if len(matn) < 2 or len(matn[1].strip()) < 5:
+        await message.answer(
+            "Botga qoida o'rgatish. Masalan:\n"
+            "<code>/dars Mijoz chegirma so'rasa, katta buyurtmada menejer chegirma berishi mumkinligini ayt</code>",
+            parse_mode="HTML",
+        )
+        return
+    dars_id = await asyncio.to_thread(db.add_dars, qisqartir(matn[1].strip(), 300))
+    DARSLAR = await asyncio.to_thread(darslarni_yuklash)
+    await message.answer(f"✅ Dars #{dars_id} saqlandi — bot endi shunga amal qiladi.")
+
+
+@dp.message(Command("darslar"), EgaFilter())
+async def darslar_komandasi(message: types.Message):
+    darslar = await asyncio.to_thread(db.get_darslar, 30)
+    if not darslar:
+        await message.answer("Hozircha darslar yo'q. Qo'shish: /dars &lt;matn&gt;", parse_mode="HTML")
+        return
+    qatorlar = [f"#{d['id']} — {h(d['matn'])}" for d in darslar]
+    royxat = ""
+    for q in qatorlar:  # HTML qator o'rtasidan kesilmasligi uchun butun qatorlar bilan cheklanadi
+        if len(royxat) + len(q) > 3800:
+            break
+        royxat += q + "\n"
+    await message.answer("📚 <b>Darslar</b> (o'chirish: /dars_ochir &lt;id&gt;)\n\n" + royxat, parse_mode="HTML")
+
+
+@dp.message(Command("dars_ochir"), EgaFilter())
+async def dars_ochir_komandasi(message: types.Message):
+    global DARSLAR
+    dars_id = _chat_id_ajratish(message)
+    if dars_id is None or not await asyncio.to_thread(db.delete_dars, dars_id):
+        await message.answer("Dars topilmadi. Masalan: /dars_ochir 3")
+        return
+    DARSLAR = await asyncio.to_thread(darslarni_yuklash)
+    await message.answer(f"🗑 Dars #{dars_id} o'chirildi.")
+
+
+@dp.message(Command("sinov"), EgaFilter())
+async def sinov_komandasi(message: types.Message):
+    """Ega botni oddiy mijoz sifatida sinab ko'rishi uchun (ID orqali egani taniydi, shuning uchun alohida rejim)."""
+    uid = message.from_user.id
+    if uid in SINOV_REJIMI:
+        SINOV_REJIMI.discard(uid)
+        await message.answer("✅ Sinov rejimi o'chirildi — siz yana bot egasisiz.")
+    else:
+        SINOV_REJIMI.add(uid)
+        await asyncio.to_thread(db.clear_chat_history, message.chat.id)
+        await message.answer("🧪 Sinov rejimi: endi yozganlaringizga bot mijozga javob bergandek javob beradi.\n"
+                             "Tugatish: /sinov")
+
+
 @dp.message(Command("help"), EgaFilter())
 async def help_komandasi(message: types.Message):
     await message.answer(
@@ -1315,10 +1586,11 @@ async def help_komandasi(message: types.Message):
             "4. Bot jami summa va to'lov shartini o'zi hisoblab ko'rsatadi — «✅ Mijozga yuborish» bosilgach, taklif mijozga ketadi.\n"
             if NARX_OMBORDAN else
             "2. Pozitsiya va miqdor aniq bo'lgach, bot mijozga <b>narxsiz tijorat taklifini (PDF)</b> yuboradi.\n"
-            "3. Taklif nusxasi sizga ham keladi — mijozga narxni o'zingiz bildirasiz.\n"
+            "3. Taklif nusxasi lidlar guruhiga ham keladi — mijozga narxni o'zingiz bildirasiz.\n"
             "4. Bot hech qachon narx aytmaydi.\n"
         )
-        + "5. Yangi mijoz, buyurtma tasdiqlanishi va menejer kerak bo'lgan holatlar haqida sizga xabar keladi.\n"
+        + "5. Har bir mijoz lidlar guruhida bitta kartochka: kontakt olinganda paydo bo'ladi va yangilanib boradi; "
+        "taklif, buyurtma va menejer kerak bo'lgan holatlar shu kartochkaga javob qilib yoziladi.\n"
         f"6. Siz mijozga o'zingiz yozsangiz, bot {EGA_PAUZA_DAQIQA} daqiqa jim turadi (<code>/resume &lt;chat_id&gt;</code>).\n\n"
         + BUYRUQLAR_MATNI,
         parse_mode="HTML",
@@ -1337,27 +1609,47 @@ async def ulanish_bildirishi(conn: types.BusinessConnection):
     logging.info("Biznes akkaunt ulandi: @%s (faol: %s)", conn.user.username, conn.is_enabled)
 
 
-async def mediani_menejerga_yuborish(message: types.Message, turi: str):
-    """Mijoz yuborgan rasm/hujjatni (masalan, dvigatel shildigi) menejer va omborga yuboradi - AI rasmni ko'rmaydi."""
+async def mediani_menejerga_yuborish(xabarlar: list[types.Message]):
+    """
+    Mijoz yuborgan rasm/hujjatlarni (masalan, dvigatel shildigi) lidlar guruhiga va omborga yuboradi - AI rasmni ko'rmaydi.
+    Albom (bir nechta rasm) bitta guruh-xabar sifatida yuboriladi.
+    """
+    if not xabarlar:
+        return
+    message = xabarlar[-1]
     user = message.from_user
+    chat_id = message.chat.id
+    izohlar = "\n".join(h(qisqartir(x.caption, 300)) for x in xabarlar if x.caption)
     izoh = (
-        f"📎 {mijoz_havolasi(user.id, user.full_name, f'@{user.username}' if user.username else '')} {turi} yubordi"
-        + (f":\n{h(qisqartir(message.caption, 500))}" if message.caption else "")
-        + f"\n🆔 Chat: <code>{message.chat.id}</code>"
-    )
-    maqsadlar = set(ombor_chatlari()) | await asyncio.to_thread(hisobot_oluvchilar, None)
+        f"📎 {mijoz_havolasi(user.id, user.full_name, f'@{user.username}' if user.username else '')} "
+        f"{len(xabarlar)} ta fayl/rasm yubordi" + (f":\n{izohlar}" if izohlar else "")
+        + f"\n🆔 Chat: <code>{chat_id}</code>"
+    )[:1000]
+    rasmlar = [x.photo[-1].file_id for x in xabarlar if x.photo]
+    hujjatlar = [x.document.file_id for x in xabarlar if x.document]
+
+    lead = await asyncio.to_thread(db.get_lead, chat_id)
+    kartalar = _karta_msglari(lead) if lead else {}
+    maqsadlar = set(ombor_chatlari() if NARX_OMBORDAN else []) | set(await asyncio.to_thread(hisobot_chatlari, None))
     for target in maqsadlar:
+        javob_id = kartalar.get(str(target))
+        qoshimcha = {"reply_to_message_id": javob_id, "allow_sending_without_reply": True} if javob_id else {}
         try:
-            if message.photo:
-                await bot.send_photo(chat_id=target, photo=message.photo[-1].file_id, caption=izoh, parse_mode="HTML")
-            elif message.document:
-                await bot.send_document(chat_id=target, document=message.document.file_id, caption=izoh, parse_mode="HTML")
+            if len(rasmlar) > 1:
+                guruh = [types.InputMediaPhoto(media=f, caption=izoh if i == 0 else None, parse_mode="HTML")
+                         for i, f in enumerate(rasmlar[:10])]
+                await bot.send_media_group(chat_id=target, media=guruh, **qoshimcha)
+            elif rasmlar:
+                await bot.send_photo(chat_id=target, photo=rasmlar[0], caption=izoh, parse_mode="HTML", **qoshimcha)
+            for i, f in enumerate(hujjatlar):
+                await bot.send_document(chat_id=target, document=f, caption=izoh if not rasmlar and i == 0 else None,
+                                        parse_mode="HTML", **qoshimcha)
         except Exception as e:
             logging.warning("Mediani (%s) ga yuborib bo'lmadi: %s", target, e)
 
 
 async def xabar_matnini_olish(message: types.Message, is_business: bool) -> str | None:
-    """Xabar turini aniqlab matnga aylantiradi (ovoz - Whisper, rasm/hujjat - menejerga)."""
+    """Xabar turini aniqlab matnga aylantiradi (ovoz - Whisper; rasm/hujjat - menejerga alohida yuboriladi)."""
     if message.text:
         return message.text.strip()
     if message.contact:
@@ -1365,7 +1657,6 @@ async def xabar_matnini_olish(message: types.Message, is_business: bool) -> str 
         return f"[Mijoz kontakt ulashdi] Ismi: {ism}, telefon: {message.contact.phone_number}"
     if message.photo or message.document:
         turi = "rasm" if message.photo else "fayl"
-        await mediani_menejerga_yuborish(message, turi)
         caption = f" Izohi: {message.caption.strip()}" if message.caption else ""
         return f"[Mijoz {turi} yubordi (sen uni ko'ra olmaysan, u menejerga yuborildi).{caption}]"
     if message.location:
@@ -1387,56 +1678,120 @@ async def xabar_matnini_olish(message: types.Message, is_business: bool) -> str 
     return None
 
 
-async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True):
-    """Mijoz xabarini qayta ishlaydi: AI javobi, CRM, narx so'rovi."""
-    chat_id = message.chat.id
-    ega_id = None
+async def _kirish_tekshiruvi(message: types.Message, is_business: bool) -> tuple[bool, int | None]:
+    """
+    Bot bu xabarga javob berishi kerakmi? Qaytaradi: (javob_berilsinmi, ega_id).
+    Business chatda: botning o'z xabari, menejer (akkaunt egasi) yozgani va menejer faol bo'lgan chatlar o'tkaziladi.
+    """
     bcid = message.business_connection_id if is_business else None
-
+    ega_id = None
     if is_business and bcid:
         # Botning o'zi business akkaunt nomidan yuborgan xabar ham update bo'lib qaytadi -
         # uni menejer yozgan deb hisoblamaslik kerak (aks holda bot o'zini 30 daqiqaga o'chirib qo'yadi)
         if message.sender_business_bot is not None:
-            return
+            return False, None
         ega_id = await ega_id_ol(bcid)
         # Menejer (akkaunt egasi) o'zi yozsa - bot jim turadi
         if message.from_user is None or message.from_user.id == ega_id:
-            await asyncio.to_thread(db.record_owner_activity, chat_id)
-            return
-        if await asyncio.to_thread(db.is_owner_recently_active, chat_id, EGA_PAUZA_DAQIQA):
-            logging.info("Chat %s da menejer faol, bot aralashmaydi.", chat_id)
-            return
-
+            await asyncio.to_thread(db.record_owner_activity, message.chat.id)
+            return False, ega_id
+        if await asyncio.to_thread(db.is_owner_recently_active, message.chat.id, EGA_PAUZA_DAQIQA):
+            logging.info("Chat %s da menejer faol, bot aralashmaydi.", message.chat.id)
+            return False, ega_id
     if message.from_user is None:
+        return False, ega_id
+    return True, ega_id
+
+
+def _til_uchun_matn(matn: str) -> str:
+    """
+    Tilni aniqlash uchun faqat mijoz o'zi yozgan qism: bot qo'shgan "[Mijoz rasm yubordi ...]" kabi o'zbekcha
+    izohlar olib tashlanadi (aks holda rus mijoz rasm yuborsa, o'zbek deb aniqlanardi), rasm izohi qoldiriladi.
+    """
+    qatorlar = []
+    for q in (matn or "").splitlines():
+        if q.startswith("[Mijoz"):
+            m = re.search(r"Izohi:\s*(.*?)\]?$", q)
+            if m:
+                qatorlar.append(m.group(1))
+        else:
+            qatorlar.append(q)
+    return "\n".join(qatorlar)
+
+
+@contextlib.asynccontextmanager
+async def yozmoqda(chat_id: int, bcid: str | None):
+    """AI javob tayyorlayotganda "yozmoqda..." ko'rsatkichini doimiy yangilab turadi (Telegram uni 5 soniyada o'chiradi)."""
+    async def aylanish():
+        while True:
+            try:
+                await bot.send_chat_action(chat_id=chat_id, action="typing", business_connection_id=bcid)
+            except Exception:
+                pass
+            await asyncio.sleep(4.5)
+
+    vazifa = asyncio.create_task(aylanish())
+    try:
+        yield
+    finally:
+        vazifa.cancel()
+
+
+async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True, xabar_matni: str | None = None,
+                                media: list[types.Message] | None = None):
+    """
+    Mijoz xabarini qayta ishlaydi: AI javobi, CRM, taklif.
+    xabar_matni berilsa - bu ketma-ket kelgan bir nechta xabarning birlashtirilgan matni (navbatdan).
+    """
+    chat_id = message.chat.id
+    bcid = message.business_connection_id if is_business else None
+
+    ruxsat, ega_id = await _kirish_tekshiruvi(message, is_business)
+    if not ruxsat:
         return
 
-    xabar_matni = await xabar_matnini_olish(message, is_business)
+    if xabar_matni is None:
+        xabar_matni = await xabar_matnini_olish(message, is_business)
+        media = [message] if (message.photo or message.document) else []
     if not xabar_matni:
         return
+    if media:
+        await mediani_menejerga_yuborish(media)
 
     async with chat_locks[chat_id]:
         oxirgi_vaqt = await asyncio.to_thread(db.get_last_message_time, chat_id)
-        if oxirgi_vaqt and (datetime.now() - oxirgi_vaqt).total_seconds() > SESSIYA_SOAT * 3600:
+        if oxirgi_vaqt and (hozir() - oxirgi_vaqt).total_seconds() > SESSIYA_SOAT * 3600:
             await asyncio.to_thread(db.clear_chat_history, chat_id)
-
-        tarix = await asyncio.to_thread(db.get_chat_history, chat_id, MAX_TARIX)
-
-        try:
-            await bot.send_chat_action(chat_id=chat_id, action="typing", business_connection_id=bcid)
-        except Exception:
-            pass
 
         # Mijoz tilini dastur aniqlaydi (AI ga ishonib qolinmaydi): javob va taklif shu tilda bo'ladi
         meta = await asyncio.to_thread(db.get_chat_meta, chat_id)
-        til = sotuv.tilni_aniqlash(xabar_matni, meta["til"] if meta else "")
+        oldingi_til = meta["til"] if meta and meta["til"] else ""
+        til = sotuv.tilni_aniqlash(_til_uchun_matn(xabar_matni), oldingi_til)
+        if til == sotuv.BOSHQA_TIL:
+            # Ruxsat berilmagan til: AI chaqirilmaydi, mijozga 3 tilda tushuntiriladi
+            await asyncio.to_thread(db.add_message, chat_id, "user", xabar_matni)
+            if await mijozga_yuborish(chat_id, bcid, sotuv.BOSHQA_TIL_JAVOBI) is None:
+                await asyncio.to_thread(db.add_message, chat_id, "assistant", sotuv.BOSHQA_TIL_JAVOBI)
+            return
 
+        tarix = await asyncio.to_thread(db.get_chat_history, chat_id, MAX_TARIX)
         await asyncio.to_thread(db.add_message, chat_id, "user", xabar_matni)
         await asyncio.to_thread(db.save_chat_meta, chat_id, message.from_user.id, bcid, til)
         tarix.append({"role": "user", "content": xabar_matni})
 
-        # Suhbatning birinchi xabari: AI dan oldin kompaniya va mahsulotlar taqdimoti yuboriladi
-        taqdimot_hozir = False
-        if not await asyncio.to_thread(db.taqdimot_yuborilganmi, chat_id):
+        async with yozmoqda(chat_id, bcid):
+            await _javob_tayyorlash(message, is_business, chat_id, bcid, ega_id, xabar_matni, tarix, til)
+
+
+async def _javob_tayyorlash(message, is_business, chat_id, bcid, ega_id, xabar_matni, tarix, til):
+    # Suhbatning birinchi xabari: AI dan oldin kompaniya va mahsulotlar taqdimoti yuboriladi.
+    # Qaytgan (tanish) mijozga taqdimot qayta yuborilmaydi - AI uni eslab, iliq davom ettiradi.
+    taqdimot_hozir = False
+    if not await asyncio.to_thread(db.taqdimot_yuborilganmi, chat_id):
+        lead = await asyncio.to_thread(db.get_lead, chat_id)
+        if lead and (lead["xulosa"] or lead["mavzu"]):
+            await asyncio.to_thread(db.taqdimot_belgilash, chat_id)
+        else:
             tanishtiruv = tanishtiruv_matni(til)
             if await mijozga_yuborish(chat_id, bcid, tanishtiruv) is None:
                 await asyncio.to_thread(db.taqdimot_belgilash, chat_id)
@@ -1447,45 +1802,48 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                 if sotuv.faqat_salommi(xabar_matni):
                     return
 
-        holat = await asyncio.to_thread(suhbat_holati, chat_id)
+    holat = await asyncio.to_thread(suhbat_holati, chat_id)
 
-        try:
-            natija = await ai_javob(tarix, holat, til)
-        except Exception as xato:
-            logging.error("AI javob bera olmadi (chat %s): %s", chat_id, xato)
-            await javob_yubor(message, tmatn("ai_xato", til), is_business)
-            if await asyncio.to_thread(db.menejer_chaqirish_mumkinmi, chat_id, 30):
-                u = message.from_user
-                await egalarga_yuborish(
-                    "⚠️ <b>AI javob bera olmadi</b> (limit yoki xato). Mijozga «menejer javob beradi» deyildi.\n\n"
-                    f"👤 {mijoz_havolasi(u.id, u.full_name, f'@{u.username}' if u.username else '')}\n"
-                    f"💬 {h(qisqartir(xabar_matni, 400))}\n🆔 Chat: <code>{chat_id}</code>",
-                    ega_id,
-                )
-            return
+    try:
+        natija = await ai_javob(tarix, holat, til)
+    except Exception as xato:
+        logging.error("AI javob bera olmadi (chat %s): %s", chat_id, xato)
+        await javob_yubor(message, tmatn("ai_xato", til), is_business)
+        if await asyncio.to_thread(db.menejer_chaqirish_mumkinmi, chat_id, 30):
+            u = message.from_user
+            matn = (
+                "⚠️ <b>AI javob bera olmadi</b> (limit yoki xato). Mijozga «menejer javob beradi» deyildi.\n\n"
+                f"👤 {mijoz_havolasi(u.id, u.full_name, f'@{u.username}' if u.username else '')}\n"
+                f"💬 {h(qisqartir(xabar_matni, 400))}\n🆔 Chat: <code>{chat_id}</code>"
+            )
+            if holat.get("lead"):
+                await lid_hodisasi(chat_id, matn, ega_id)
+            else:
+                await egalarga_yuborish(matn, ega_id)
+        return
 
-        javob = sotuv.salomni_moslash(natija["javob"], natija["_birinchi"], til)
-        if taqdimot_hozir and sotuv.taqdimotni_takrorlaydimi(javob, tanishtiruv_matni(til)) and not natija["narx_sorash"]:
-            logging.info("AI javobi taqdimotni takrorlaydi - yuborilmadi (chat %s).", chat_id)
-            await crm_yangilash_xavfsiz(chat_id, message.from_user, natija, holat, xabar_matni, bcid, ega_id)
-            return
-
-        # AI qo'shimcha parametr so'rab turib qolsa ham: asosiy ma'lumot yetarli bo'lsa - narx so'rovi yuboriladi
-        if not natija["narx_sorash"] and sotuv.narx_sorash_mumkinmi(natija["mahsulotlar"]):
-            kalit = sotuv.mahsulotlar_kaliti(natija["mahsulotlar"])
-            if kalit not in [r["kalit"] for r in (holat.get("faol"), holat.get("taklif")) if r]:
-                natija["narx_sorash"] = True
-                javob = f"{javob}\n\n{tmatn('kutish' if NARX_OMBORDAN else 'taklif_tayyorlanmoqda', til)}"
-        # Suhbatda allaqachon minnatdorchilik bildirilgan bo'lsa - har javobda "Rahmat" takrorlanmaydi
-        oldin_rahmat = any(m["role"] == "assistant" and sotuv.rahmat_aytilganmi(m["content"]) for m in tarix)
-        javob = sotuv.takroriy_rahmatni_olib_tashlash(javob, oldin_rahmat, natija["mijoz"]["ism"])
-
-        xato = await mijozga_yuborish(chat_id, bcid, javob)
-        if xato:
-            return
-        await asyncio.to_thread(db.add_message, chat_id, "assistant", javob)
-
+    javob = sotuv.salomni_moslash(natija["javob"], natija["_birinchi"], til)
+    if taqdimot_hozir and sotuv.taqdimotni_takrorlaydimi(javob, tanishtiruv_matni(til)) and not natija["narx_sorash"]:
+        logging.info("AI javobi taqdimotni takrorlaydi - yuborilmadi (chat %s).", chat_id)
         await crm_yangilash_xavfsiz(chat_id, message.from_user, natija, holat, xabar_matni, bcid, ega_id)
+        return
+
+    # AI qo'shimcha parametr so'rab turib qolsa ham: asosiy ma'lumot yetarli bo'lsa - narx so'rovi yuboriladi
+    if not natija["narx_sorash"] and sotuv.narx_sorash_mumkinmi(natija["mahsulotlar"]):
+        kalit = sotuv.mahsulotlar_kaliti(natija["mahsulotlar"])
+        if kalit not in [r["kalit"] for r in (holat.get("faol"), holat.get("taklif")) if r]:
+            natija["narx_sorash"] = True
+            javob = f"{javob}\n\n{tmatn('kutish' if NARX_OMBORDAN else 'taklif_tayyorlanmoqda', til)}"
+    # Suhbatda allaqachon minnatdorchilik bildirilgan bo'lsa - har javobda "Rahmat" takrorlanmaydi
+    oldin_rahmat = any(m["role"] == "assistant" and sotuv.rahmat_aytilganmi(m["content"]) for m in tarix)
+    javob = sotuv.takroriy_rahmatni_olib_tashlash(javob, oldin_rahmat, natija["mijoz"]["ism"])
+
+    xato = await mijozga_yuborish(chat_id, bcid, javob)
+    if xato:
+        return
+    await asyncio.to_thread(db.add_message, chat_id, "assistant", javob)
+
+    await crm_yangilash_xavfsiz(chat_id, message.from_user, natija, holat, xabar_matni, bcid, ega_id)
 
 
 async def crm_yangilash_xavfsiz(chat_id, mijoz, natija, holat, xabar_matni, bcid, ega_id):
@@ -1495,9 +1853,62 @@ async def crm_yangilash_xavfsiz(chat_id, mijoz, natija, holat, xabar_matni, bcid
         logging.exception("CRM yangilashda xatolik (chat %s): %s", chat_id, e)
 
 
+# ---------------------------------------------------------------------
+#  Ketma-ket xabarlarni yig'ish: mijoz bir fikrni 3 ta xabarda yozsa yoki albom yuborsa -
+#  bot hammasini o'qib, BITTA yaxlit javob beradi (token ham tejaladi).
+# ---------------------------------------------------------------------
+
+_navbat: dict[int, dict] = {}
+
+
+def _matnlarni_birlashtirish(matnlar: list[str]) -> str:
+    natija = []
+    for m in matnlar:
+        if not natija or natija[-1] != m:  # albomdagi bir xil "[rasm yubordi]" qatorlari takrorlanmaydi
+            natija.append(m)
+    return "\n".join(natija)
+
+
+async def _navbatni_ishlash(chat_id: int, kutish: float):
+    await asyncio.sleep(kutish)
+    n = _navbat.pop(chat_id, None)  # sleep dan keyin await yo'q - yangi xabar shu paytda qo'shila olmaydi
+    if not n:
+        return
+    try:
+        await xabarni_qayta_ishlash(n["message"], n["is_business"], _matnlarni_birlashtirish(n["matnlar"]), n["media"])
+    except Exception as e:
+        logging.exception("Xabarni qayta ishlashda xatolik (chat %s): %s", chat_id, e)
+
+
+async def xabarni_navbatga_qoshish(message: types.Message, is_business: bool):
+    ruxsat, _ = await _kirish_tekshiruvi(message, is_business)
+    if not ruxsat:
+        return
+    if XABAR_KUTISH <= 0:
+        await xabarni_qayta_ishlash(message, is_business)
+        return
+    matn = await xabar_matnini_olish(message, is_business)
+    if not matn:
+        return
+
+    chat_id = message.chat.id
+    vaqt = asyncio.get_running_loop().time()
+    n = _navbat.get(chat_id)
+    if n is None:
+        n = _navbat[chat_id] = {"matnlar": [], "media": [], "boshlangan": vaqt}
+    elif n.get("vazifa"):
+        n["vazifa"].cancel()
+    n["matnlar"].append(matn)
+    n["message"], n["is_business"] = message, is_business
+    if message.photo or message.document:
+        n["media"].append(message)
+    kutish = max(0.05, min(XABAR_KUTISH, XABAR_MAX_KUTISH - (vaqt - n["boshlangan"])))
+    n["vazifa"] = asyncio.create_task(_navbatni_ishlash(chat_id, kutish))
+
+
 @dp.business_message()
 async def xabar_keldi_biznes(message: types.Message):
-    await xabarni_qayta_ishlash(message, is_business=True)
+    await xabarni_navbatga_qoshish(message, is_business=True)
 
 
 @dp.message(F.chat.type == "private")
@@ -1505,7 +1916,14 @@ async def xabar_keldi_shaxsiy(message: types.Message):
     # Buyruqlar (shu jumladan ruxsatsiz admin buyruqlari) AI ga yuborilmaydi
     if message.text and message.text.startswith("/"):
         return
-    await xabarni_qayta_ishlash(message, is_business=False)
+    # Bot egasi ID orqali taniladi - u mijoz deb hisoblanmaydi va CRM ga lid bo'lib tushmaydi
+    if message.from_user and egami(message.from_user.id) and message.from_user.id not in SINOV_REJIMI:
+        await message.answer(
+            "Siz bot egasisiz — xabaringiz mijoz xabari sifatida qayta ishlanmaydi.\n"
+            "Botni mijoz sifatida sinash: /sinov · Buyruqlar: /help"
+        )
+        return
+    await xabarni_navbatga_qoshish(message, is_business=False)
 
 
 # =====================================================================
@@ -1532,11 +1950,12 @@ async def fon_tekshiruvlari():
             continue  # mijoz taklifdan keyin yozgan
         lead = await asyncio.to_thread(db.get_lead, s["chat_id"])
         if lead:
-            await egalarga_yuborish(
-                lead_kartochkasi(lead, f"📞 <b>TAKLIF {taklif_pdf.taklif_raqami(s['id'])} JAVOBSIZ QOLDI</b>")
+            await lid_hodisasi(
+                s["chat_id"],
+                f"📞 <b>TAKLIF {taklif_pdf.taklif_raqami(s['id'])} JAVOBSIZ QOLDI</b>"
                 + f"\n\nTaklif yuborilganiga {KUZATISH_SOAT} soatdan oshdi, mijoz javob bermadi."
                 + (f" Jami: {sotuv.son_format(s['summa'])} so'm." if s["summa"] else "")
-                + "\n➡️ Qo'ng'iroq qilish tavsiya etiladi."
+                + "\n➡️ Qo'ng'iroq qilish tavsiya etiladi.",
             )
 
 
@@ -1584,20 +2003,33 @@ async def keepalive_loop(url: str):
 
 
 async def main():
-    init_runtime()
+    if not BOT_TOKEN or not GROQ_API_KEY:
+        init_runtime()  # tushunarli xato xabari bilan to'xtaydi
+    global bot
+    bot = Bot(token=BOT_TOKEN)
+    # Health check darhol javob bersin (Render deploy kutib qolmasin), keyin baza zaxiradan tiklanadi
     runner = await start_web_server()
+    zaxira_chati = zaxira.zaxira_chati(OWNER_IDS)
+    await zaxira.tiklash(bot, zaxira_chati)
+    init_runtime()
 
-    vazifalar = [asyncio.create_task(fon_loop())]
+    vazifalar = [asyncio.create_task(fon_loop()), asyncio.create_task(zaxira.zaxira_loop(bot, zaxira_chati))]
     keepalive_url = os.getenv("KEEPALIVE_URL") or os.getenv("RENDER_EXTERNAL_URL")
     if keepalive_url:
         vazifalar.append(asyncio.create_task(keepalive_loop(keepalive_url)))
 
     logging.info("%s savdo boti ishga tushdi! To'xtatish uchun: Ctrl + C", KOMPANIYA_NOMI)
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), close_bot_session=False)
     finally:
         for v in vazifalar:
             v.cancel()
+        # Server o'chirilayotganda (deploy, restart) oxirgi holat albatta saqlanadi
+        try:
+            await asyncio.wait_for(zaxira.zaxiralash(bot, zaxira_chati, majburiy=True), timeout=20)
+        except Exception as e:
+            logging.error("Yakuniy zaxira nusxani saqlab bo'lmadi: %s", e)
+        await bot.session.close()
         await runner.cleanup()
 
 

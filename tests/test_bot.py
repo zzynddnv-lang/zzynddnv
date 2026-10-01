@@ -72,7 +72,7 @@ class AiNatijaTest(unittest.TestCase):
 
     def test_notogri_turlar_tozalanadi(self):
         n = sotuv.ai_natijasini_ajratish(ai_json(
-            til="en", bosqich="nomalum", narx_sorash="true",
+            til="fr", bosqich="nomalum", narx_sorash="true",
             mahsulotlar=[{"nomi": "", "miqdor": 2}, {"nomi": "Nasos", "miqdor": "5 dona"}, "xato"],
         ))
         self.assertEqual(n["til"], "")
@@ -374,7 +374,7 @@ class SotuvOqimiTest(unittest.TestCase):
         with db.get_db() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM sorovlar").fetchone()[0], 1)
         lead = db.get_lead(10)
-        self.assertEqual(lead["telefon"], "90 123 45 67")
+        self.assertEqual(lead["telefon"], "+998 90 123 45 67")  # bir xil ko'rinishga keltiriladi
         self.assertEqual(lead["bosqich"], "narx_sorovi")
         ombor_xabarlari = [x for x in self.yuborilgan if x[0] == -100500]
         self.assertEqual(len(ombor_xabarlari), 1)
@@ -533,7 +533,13 @@ class OmborOqimiTest(unittest.TestCase):
             self.yuborilgan.append((chat_id, text, kw))
             return SimpleNamespace(message_id=100 + len(self.yuborilgan))
 
-        b.bot = SimpleNamespace(send_message=send_message, id=999)
+        self.hujjatlar = []
+
+        async def send_document(chat_id, document, caption=None, **kw):
+            self.hujjatlar.append((chat_id, document, caption, kw))
+            return SimpleNamespace(message_id=1)
+
+        b.bot = SimpleNamespace(send_message=send_message, send_document=send_document, id=999)
         db.upsert_lead(self.MIJOZ_CHAT, full_name="Ali", telegram_id=7, bosqich="narx_sorovi")
         self.sid = db.create_sorov(self.MIJOZ_CHAT, 7, "biz-conn-1", "uz_latn", json.dumps(POZ), "k", "")
 
@@ -587,6 +593,11 @@ class OmborOqimiTest(unittest.TestCase):
         self.assertEqual(db.get_sorov(self.sid)["holat"], "yuborildi")
         self.assertEqual(db.get_lead(self.MIJOZ_CHAT)["bosqich"], "taklif_berildi")
         self.assertEqual(db.get_chat_history(self.MIJOZ_CHAT)[-1]["role"], "assistant")
+        # Mijozga narxli PDF ham boradi (matndagi raqamlar bilan)
+        pdflar = [x for x in self.hujjatlar if x[0] == self.MIJOZ_CHAT]
+        self.assertEqual(len(pdflar), 1)
+        self.assertTrue(pdflar[0][1].data.startswith(b"%PDF"))
+        self.assertEqual(pdflar[0][3]["business_connection_id"], "biz-conn-1")
 
         # Ikkinchi marta bosish - mijozga qayta yuborilmaydi
         javob = self._callback(f"s:ok:{self.sid}")
@@ -781,8 +792,8 @@ class AiFallbackTest(unittest.TestCase):
         with mock.patch.object(b, "tizim_korsatmasi", return_value="test"), mock.patch.object(b, "LIMIT_KUTISH", 0):
             with self.assertRaises(RuntimeError):
                 asyncio.run(b.ai_javob([{"role": "user", "content": "нужен насос"}], {"faol": None, "taklif": None}, "ru"))
-        modellar_soni = len(set([b.MODEL] + b.ZAXIRA_MODELLAR))
-        self.assertEqual(len(chaqiruvlar), modellar_soni * 2 * 2)  # 2 aylanish x (javob + tuzatish)
+        # Token tejash: bitta javob uchun AI so'rovlari MAX_AI_CHAQIRUV dan oshmaydi
+        self.assertEqual(len(chaqiruvlar), b.MAX_AI_CHAQIRUV)
 
     def test_takroriy_lekin_togri_tildagi_javob_yuboriladi(self):
         eski = "Какой диаметр скважины нужен для подбора насоса, подскажите пожалуйста?"
@@ -835,6 +846,407 @@ class AiFallbackTest(unittest.TestCase):
         with mock.patch.object(b, "tizim_korsatmasi", return_value="test"), mock.patch.object(b, "LIMIT_KUTISH", 999):
             with self.assertRaises(RuntimeError):
                 asyncio.run(b.ai_javob([{"role": "user", "content": "salom"}], {"faol": None, "taklif": None}))
+
+
+
+# =====================================================================
+#  YANGI IMKONIYATLAR: tillar, telefon, lidlar guruhi, zaxira, navbat, egalik
+# =====================================================================
+
+def _soxta_bot(yuborilgan: list, **qoshimcha):
+    """Telegram bot o'rnini bosuvchi obyekt: barcha chaqiruvlar ro'yxatga yoziladi."""
+    hisob = {"n": 0}
+
+    def _yoz(nomi):
+        async def f(*a, **kw):
+            hisob["n"] += 1
+            yuborilgan.append((nomi, kw))
+            return SimpleNamespace(message_id=1000 + hisob["n"])
+        return f
+
+    nomlar = ("send_message", "send_document", "edit_message_text", "send_chat_action", "send_photo",
+              "send_media_group", "pin_chat_message", "delete_message")
+    obj = SimpleNamespace(id=999, **{n: _yoz(n) for n in nomlar})
+    for k, v in qoshimcha.items():
+        setattr(obj, k, v)
+    return obj
+
+
+def _tozalash():
+    db.init_db()
+    with db.get_db() as conn:
+        for t in ("leads", "sorovlar", "messages", "chats", "darslar"):
+            conn.execute(f"DELETE FROM {t}")
+
+
+class TillarTest(unittest.TestCase):
+    def test_ruscha_ozbekcha_deb_aniqlanmaydi(self):
+        # Avval "какая" (ичида "ака") va "выбор " (ичида "бор ") o'zbek kirill deb aniqlanardi
+        for matn in ("Какая цена на двигатель?", "Есть на выбор несколько моделей?", "Такая мощность подойдёт?"):
+            self.assertEqual(sotuv.tilni_aniqlash(matn), "ru", matn)
+        self.assertEqual(sotuv.tilni_aniqlash("Ассалому алайкум, ака двигател керак"), "uz_cyrl")
+
+    def test_ingliz_tili(self):
+        self.assertEqual(sotuv.tilni_aniqlash("Hello, I need a 15 kW motor"), "en")
+        self.assertEqual(sotuv.tilni_aniqlash("How much is it?"), "en")
+        self.assertEqual(sotuv.tilni_aniqlash("ok", "en"), "en")
+        self.assertEqual(sotuv.tilni_aniqlash("Salom aka, 4 kVt dvigatel kerak"), "uz_latn")
+        self.assertTrue(sotuv.yozuv_mosmi("I recommend the AIR 100L4 motor. How many do you need?", "en"))
+        self.assertFalse(sotuv.yozuv_mosmi("Sizga AIR 100L4 dvigateli mos keladi, nechta kerak?", "en"))
+        self.assertFalse(sotuv.yozuv_mosmi("I recommend the AIR motor for your pump, how many do you need?", "uz_latn"))
+        self.assertFalse(sotuv.yozuv_mosmi("Сизга қандай двигател керак, қувватини ёзинг?", "ru"))
+
+    def test_boshqa_tillar_rad_etiladi(self):
+        for matn in ("Merhaba, motor fiyatı nedir?", "مرحبا أريد محرك", "你好，我需要电机",
+                     "Сәлеметсіз бе, қозғалтқыш керек", "Guten Tag, ich brauche einen Motor", "Bonjour, je cherche un moteur"):
+            self.assertEqual(sotuv.tilni_aniqlash(matn), sotuv.BOSHQA_TIL, matn)
+
+    def test_ingliz_matnlari_va_taqdimot(self):
+        for kalit in sotuv._MATNLAR["uz_latn"]:
+            self.assertIn(kalit, sotuv._MATNLAR["en"])
+        self.assertIn("Explosion-proof", b.tanishtiruv_matni("en"))
+        self.assertTrue(sotuv.faqat_salommi("Hello!"))
+        self.assertTrue(sotuv.narx_aytilganmi("It costs about 300 USD"))
+
+    def test_rasm_izohi_tilni_buzmaydi(self):
+        matn = "[Mijoz rasm yubordi (sen uni ko'ra olmaysan, u menejerga yuborildi). Izohi: Вот шильдик двигателя]"
+        self.assertEqual(sotuv.tilni_aniqlash(b._til_uchun_matn(matn)), "ru")
+        kontakt = "[Mijoz kontakt ulashdi] Ismi: Иван, telefon: +79991234567"
+        self.assertEqual(sotuv.tilni_aniqlash(b._til_uchun_matn(kontakt), "ru"), "ru")
+        self.assertEqual(sotuv.tilni_aniqlash(b._til_uchun_matn("Salom\n" + kontakt)), "uz_latn")
+
+    def test_boshqa_tilda_ai_chaqirilmaydi(self):
+        _tozalash()
+        yuborilgan = []
+        b.bot = _soxta_bot(yuborilgan)
+        chaqiruv = []
+
+        async def soxta_ai(*a, **kw):
+            chaqiruv.append(1)
+
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=70), text="Merhaba, motor fiyatı nedir?", business_connection_id=None,
+            sender_business_bot=None, from_user=SimpleNamespace(id=70, username=None, full_name="Ahmet"),
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        with mock.patch.object(b, "ai_javob", soxta_ai):
+            asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=False))
+        self.assertEqual(chaqiruv, [])
+        matnlar = [kw["text"] for nomi, kw in yuborilgan if nomi == "send_message"]
+        self.assertEqual(matnlar, [sotuv.BOSHQA_TIL_JAVOBI])
+        self.assertIn("ingliz", matnlar[0])
+
+
+class TelefonTest(unittest.TestCase):
+    def test_barcha_operatorlar(self):
+        for matn, kutilgan in (
+            ("+998 77 123 45 67", "+998 77 123 45 67"), ("77 123 45 67", "+998 77 123 45 67"),
+            ("50 1234567", "+998 50 123 45 67"), ("(90) 123-45-67", "+998 90 123 45 67"),
+            ("998331234567", "+998 33 123 45 67"), ("8 90 123 45 67", "+998 90 123 45 67"),
+            ("raqamim 71 200 30 40", "+998 71 200 30 40"), ("+7 999 123 45 67", "+79991234567"),
+        ):
+            self.assertEqual(sotuv.telefon_topish(matn), kutilgan, matn)
+
+    def test_texnik_raqamlar_telefon_emas(self):
+        for matn in ("15 kVt 1500 ob/min 3 dona", "100000000", "12 500 000", "380 V, 50 Hz, IP55"):
+            self.assertEqual(sotuv.telefon_topish(matn), "", matn)
+
+
+class TaklifKalitiTest(unittest.TestCase):
+    def test_qayta_ifodalash_yangi_taklif_emas(self):
+        a = [{"nomi": "AIR 100L4", "parametrlar": "4 kVt, 1500 ob/min", "miqdor": 3, "birlik": "dona"}]
+        b_ = [{"nomi": "АИР100L4 электродвигатель", "parametrlar": "4кВт 1500об/мин", "miqdor": 3, "birlik": "шт"}]
+        c = [{"nomi": "AIR 100L4", "parametrlar": "4 kVt, 1500 ob/min", "miqdor": 5, "birlik": "dona"}]
+        self.assertEqual(sotuv.mahsulotlar_kaliti(a), sotuv.mahsulotlar_kaliti(b_))
+        self.assertNotEqual(sotuv.mahsulotlar_kaliti(a), sotuv.mahsulotlar_kaliti(c))
+
+
+class LidlarGuruhiTest(unittest.TestCase):
+    GURUH = -100777
+
+    def setUp(self):
+        _tozalash()
+        self.yuborilgan = []
+        b.bot = _soxta_bot(self.yuborilgan)
+        patch = mock.patch.object(b, "LIDLAR_CHAT_ID", self.GURUH)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.mijoz = SimpleNamespace(id=8001, username="karim", full_name="Karim")
+
+    def _natija(self, **o):
+        n = sotuv.ai_natijasini_ajratish(ai_json(**o))
+        n["_birinchi"] = False
+        return n
+
+    def _guruhga(self, nomi):
+        return [kw for n, kw in self.yuborilgan if n == nomi and kw.get("chat_id") == self.GURUH]
+
+    def test_karta_kontakt_olinganda_paydo_boladi_va_tahrirlanadi(self):
+        async def oqim():
+            await b.crm_yangilash(80, self.mijoz, self._natija(ehtiyoj="Konveyer"), {}, "salom", None, None)
+            self.assertEqual(self._guruhga("send_message"), [])  # kontaktsiz - hali lid emas
+            await b.crm_yangilash(80, self.mijoz, self._natija(ehtiyoj="Konveyer"), {}, "raqamim 93 123 45 67", None, None)
+            await b.crm_yangilash(80, self.mijoz, self._natija(ehtiyoj="Konveyer"), {}, "ok", None, None)
+            await b.crm_yangilash(80, self.mijoz, self._natija(ehtiyoj="Konveyer 4 kVt"), {}, "4 kVt", None, None)
+
+        asyncio.run(oqim())
+        yangi = self._guruhga("send_message")
+        self.assertEqual(len(yangi), 1)  # har bir mijoz - bitta kartochka
+        self.assertIn("+998 93 123 45 67", yangi[0]["text"])
+        self.assertIn("LID #", yangi[0]["text"])
+        tahrir = self._guruhga("edit_message_text")
+        self.assertEqual(len(tahrir), 1)  # o'zgarmagan holatda tahrir yo'q, o'zgarganda - bor
+        self.assertIn("4 kVt", tahrir[0]["text"])
+        # Egalarga shaxsiy xabar ketmaydi - hammasi guruhda
+        self.assertFalse(any(kw.get("chat_id") in (111, 222) for _, kw in self.yuborilgan))
+
+    def test_hodisa_kartaga_javob_qilib_yoziladi_va_pdf_guruhga(self):
+        n = self._natija(mahsulotlar=POZ, narx_sorash=True, menejer_kerak=True, menejer_sababi="chegirma",
+                         mijoz={"ism": "Karim", "telefon": "", "kompaniya": "", "lavozim": "", "soha": ""})
+        asyncio.run(b.crm_yangilash(81, self.mijoz, n, {"faol": None, "taklif": None}, "91 234 56 78", None, None))
+        karta_id = json.loads(db.get_lead(81)["karta_msglar"])[str(self.GURUH)]
+        pdf = self._guruhga("send_document")
+        self.assertEqual(len(pdf), 1)
+        self.assertEqual(pdf[0]["reply_to_message_id"], karta_id)
+        self.assertLessEqual(len(pdf[0]["caption"]), 1024)
+        menejer = [kw for kw in self._guruhga("send_message") if "MENEJER ARALASHUVI" in kw["text"]]
+        self.assertEqual(menejer[0]["reply_to_message_id"], karta_id)
+
+    def test_uzun_izohli_fayl_buzilmaydi(self):
+        db.upsert_lead(82, full_name="X", telegram_id=82, telefon="+998 90 000 00 00")
+        asyncio.run(b.lid_hodisasi(82, "<b>Sarlavha</b>\n" + "a" * 1500, hujjat=(b"%PDF-test", "t.pdf")))
+        hujjat = self._guruhga("send_document")[0]
+        self.assertIsNone(hujjat["caption"])  # 1024 dan uzun izoh kesilmaydi - alohida xabar bo'ladi
+        self.assertTrue(any("a" * 1500 in kw["text"] for kw in self._guruhga("send_message")))
+
+    def test_uslub_va_xulosa_xotirada(self):
+        n = self._natija(uslub="Qisqa yozadi, 'aka' deydi", xulosa="Konveyer uchun dvigatel izlayapti", ehtiyoj="Konveyer")
+        asyncio.run(b.crm_yangilash(83, self.mijoz, n, {}, "salom aka", None, None))
+        matn = b.holat_matni(b.suhbat_holati(83), False)
+        self.assertIn("'aka' deydi", matn)
+        self.assertIn("Konveyer", matn)
+        self.assertIn("telefon: hali olinmagan", matn)
+
+
+class EgalikTest(unittest.TestCase):
+    def setUp(self):
+        _tozalash()
+        b.egalar.clear()
+        self.yuborilgan = []
+        b.bot = _soxta_bot(self.yuborilgan)
+
+    def _xabar(self, user_id, matn):
+        javoblar = []
+
+        async def answer(text, **kw):
+            javoblar.append(text)
+
+        return SimpleNamespace(
+            chat=SimpleNamespace(id=user_id, type="private"), text=matn, business_connection_id=None,
+            sender_business_bot=None, from_user=SimpleNamespace(id=user_id, username=None, full_name="U", language_code="uz"),
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None,
+            caption=None, answer=answer,
+        ), javoblar
+
+    def test_start_bilan_ega_bolib_bolmaydi(self):
+        with mock.patch.object(b, "OWNER_IDS", set()):
+            msg, _ = self._xabar(5555, "/start")
+            asyncio.run(b.start_komandasi(msg))
+            self.assertFalse(b.egami(5555))
+            self.assertNotIn(5555, db.get_owner_ids())
+
+    def test_ega_xabari_mijoz_deb_hisoblanmaydi(self):
+        msg, javoblar = self._xabar(111, "dvigatel kerak")
+        with mock.patch.object(b, "xabarni_navbatga_qoshish") as navbat:
+            asyncio.run(b.xabar_keldi_shaxsiy(msg))
+            navbat.assert_not_called()
+        self.assertIn("egasisiz", javoblar[0])
+        self.assertIsNone(db.get_lead(111))
+
+    def test_sinov_rejimida_mijoz_sifatida(self):
+        b.SINOV_REJIMI.add(111)
+        self.addCleanup(b.SINOV_REJIMI.discard, 111)
+        msg, _ = self._xabar(111, "dvigatel kerak")
+
+        async def navbat(m, is_business):
+            navbat.chaqirildi = True
+
+        navbat.chaqirildi = False
+        with mock.patch.object(b, "xabarni_navbatga_qoshish", navbat):
+            asyncio.run(b.xabar_keldi_shaxsiy(msg))
+        self.assertTrue(navbat.chaqirildi)
+
+
+class NavbatTest(unittest.TestCase):
+    def setUp(self):
+        _tozalash()
+        self.yuborilgan = []
+        b.bot = _soxta_bot(self.yuborilgan)
+
+    def test_ketma_ket_xabarlarga_bitta_javob(self):
+        ai_kirish = []
+
+        async def soxta_ai(tarix, holat, til="uz_latn"):
+            ai_kirish.append(tarix[-1]["content"])
+            n = sotuv.ai_natijasini_ajratish(ai_json(javob="Konveyer uchun AIR mos. Quvvati qancha?"))
+            n["_birinchi"], n["til"] = False, til
+            return n
+
+        def xabar(matn):
+            return SimpleNamespace(
+                chat=SimpleNamespace(id=90), text=matn, business_connection_id=None, sender_business_bot=None,
+                from_user=SimpleNamespace(id=90, username=None, full_name="Mijoz"), contact=None, photo=None,
+                document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+            )
+
+        async def oqim():
+            for matn in ("Salom", "konveyer uchun", "dvigatel kerak"):
+                await b.xabarni_navbatga_qoshish(xabar(matn), is_business=False)
+                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.3)
+
+        db.taqdimot_belgilash(90)
+        with mock.patch.object(b, "ai_javob", soxta_ai), mock.patch.object(b, "XABAR_KUTISH", 0.1):
+            asyncio.run(oqim())
+        self.assertEqual(ai_kirish, ["Salom\nkonveyer uchun\ndvigatel kerak"])
+        javoblar = [kw["text"] for n, kw in self.yuborilgan if n == "send_message" and kw.get("chat_id") == 90]
+        self.assertEqual(len(javoblar), 1)
+
+
+class QaytganMijozTest(unittest.TestCase):
+    def test_tanish_mijozga_taqdimot_qayta_yuborilmaydi(self):
+        _tozalash()
+        yuborilgan = []
+        b.bot = _soxta_bot(yuborilgan)
+        db.upsert_lead(95, full_name="Aziz", telegram_id=95, xulosa="Nasos uchun 7.5 kVt so'ragan", uslub="rasmiy")
+
+        async def soxta_ai(tarix, holat, til="uz_latn"):
+            self.assertIn("Aziz", b.holat_matni(holat, True))
+            n = sotuv.ai_natijasini_ajratish(ai_json(javob="Aziz, yana xush kelibsiz! Qanday yordam kerak?"))
+            n["_birinchi"], n["til"] = True, til
+            return n
+
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=95), text="Salom", business_connection_id=None, sender_business_bot=None,
+            from_user=SimpleNamespace(id=95, username=None, full_name="Aziz"), contact=None, photo=None,
+            document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        with mock.patch.object(b, "ai_javob", soxta_ai):
+            asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=False))
+        matnlar = [kw["text"] for n, kw in yuborilgan if n == "send_message"]
+        self.assertEqual(len(matnlar), 1)
+        self.assertNotIn("Kran-metallurgiya", matnlar[0])
+        self.assertIn("Aziz", matnlar[0])
+
+
+class ZaxiraTest(unittest.TestCase):
+    def test_zaxiralash_va_tiklash(self):
+        import zaxira
+        _tozalash()
+        db.upsert_lead(500, full_name="Saqlanadigan mijoz", telegram_id=500)
+        sid = db.create_sorov(500, 500, None, "uz_latn", json.dumps(POZ), "k", "")
+        fayllar = {}
+        yuborilgan = []
+
+        async def send_document(chat_id, document, **kw):
+            fayllar["f"] = document.data
+            yuborilgan.append(("send_document", kw))
+            return SimpleNamespace(message_id=77)
+
+        bot = _soxta_bot(yuborilgan, send_document=send_document)
+        zaxira._holat.update(xesh=None, msg_id=None, bloklangan=False)
+        self.assertTrue(asyncio.run(zaxira.zaxiralash(bot, 111)))
+        self.assertFalse(asyncio.run(zaxira.zaxiralash(bot, 111)))  # o'zgarmagan baza qayta yuborilmaydi
+        self.assertTrue(any(n == "pin_chat_message" for n, _ in yuborilgan))
+
+        # Server qayta ishga tushdi: disk bo'sh
+        os.remove(db.DB_FAYLI)
+        for q in ("-wal", "-shm"):
+            if os.path.exists(db.DB_FAYLI + q):
+                os.remove(db.DB_FAYLI + q)
+        self.assertFalse(db.baza_bormi())
+
+        async def get_chat(chat_id):
+            doc = SimpleNamespace(file_name="umatic_baza_20261001.db.gz", file_id="F1")
+            return SimpleNamespace(pinned_message=SimpleNamespace(document=doc, message_id=77))
+
+        async def download(file_id, destination):
+            destination.write(fayllar["f"])
+
+        bot.get_chat, bot.download = get_chat, download
+        with mock.patch.object(zaxira, "TIKLASH_KUTISH", 0):
+            self.assertTrue(asyncio.run(zaxira.tiklash(bot, 111)))
+        db.init_db()
+        self.assertEqual(db.get_lead(500)["full_name"], "Saqlanadigan mijoz")
+        # Taklif raqamlari davom etadi (qaytadan UM-00001 dan boshlanmaydi)
+        self.assertGreater(db.create_sorov(500, 500, None, "uz_latn", "[]", "k2", ""), sid)
+
+    def test_tiklash_xato_bolsa_zaxira_ustiga_yozilmaydi(self):
+        import zaxira
+        zaxira._holat.update(xesh=None, msg_id=None, bloklangan=False)
+        with db.get_db() as conn:
+            conn.execute("DELETE FROM leads")
+            conn.execute("DELETE FROM messages")
+
+        async def get_chat(chat_id):
+            raise RuntimeError("tarmoq xatosi")
+
+        bot = _soxta_bot([], get_chat=get_chat)
+        with mock.patch.object(zaxira, "TIKLASH_KUTISH", 0):
+            self.assertFalse(asyncio.run(zaxira.tiklash(bot, 111)))
+        self.assertFalse(asyncio.run(zaxira.zaxiralash(bot, 111, majburiy=True)))
+        zaxira._holat["bloklangan"] = False
+
+
+class VaqtVaSheetsTest(unittest.TestCase):
+    def test_toshkent_vaqti(self):
+        from datetime import datetime, timezone
+        import vaqt
+        farq = (vaqt.hozir() - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds() / 3600
+        self.assertAlmostEqual(farq, 5, delta=0.01)
+
+    def test_sheets_xato_javobi_muvaffaqiyat_emas(self):
+        from aiohttp import web
+
+        async def oqim():
+            async def ok(request):
+                return web.json_response({"ok": True})
+
+            async def xato(request):
+                return web.json_response({"ok": False, "error": "x"})
+
+            async def login(request):
+                return web.Response(text="<html>Sign in</html>", content_type="text/html")
+
+            app = web.Application()
+            app.router.add_post("/ok", ok)
+            app.router.add_post("/xato", xato)
+            app.router.add_post("/login", login)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            natija = {}
+            try:
+                for yol in ("ok", "xato", "login"):
+                    with mock.patch.dict(os.environ, {"GOOGLE_SHEET_WEBHOOK_URL": f"http://127.0.0.1:{port}/{yol}"}):
+                        natija[yol] = await b.google_sheetsga_yozish({"ism": "x"})
+            finally:
+                await runner.cleanup()
+            return natija
+
+        self.assertEqual(asyncio.run(oqim()), {"ok": True, "xato": False, "login": False})
+
+
+class DarslarTest(unittest.TestCase):
+    def test_dars_korsatmaga_qoshiladi(self):
+        _tozalash()
+        db.add_dars("Mijoz chegirma so'rasa, menejer bog'lanishini ayt")
+        b.DARSLAR = b.darslarni_yuklash()
+        self.addCleanup(setattr, b, "DARSLAR", "")
+        self.assertIn("chegirma so'rasa", b.tizim_korsatmasi())
+        self.assertIn("MENEJER DARSLARI", b.tizim_korsatmasi())
 
 
 if __name__ == "__main__":

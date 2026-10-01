@@ -14,6 +14,8 @@ import contextlib
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
+from vaqt import hozir as _hozir_dt
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FAYLI = os.getenv("DB_PATH") or os.path.join(BASE_DIR, "yordamchi_bot.db")
 
@@ -40,7 +42,7 @@ def get_db():
 
 
 def _hozir(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
-    return datetime.now().strftime(fmt)
+    return _hozir_dt().strftime(fmt)
 
 
 def init_db():
@@ -126,6 +128,9 @@ def init_db():
             ("bosqich", "TEXT"),
             ("harorat", "TEXT"),
             ("summa", "INTEGER"),
+            ("uslub", "TEXT"),          # mijozning yozish uslubi (AI xotirasi, suhbatlararo saqlanadi)
+            ("karta_msglar", "TEXT"),   # lid kartochkasi xabarlari: {"chat_id": message_id}
+            ("karta_hash", "TEXT"),     # kartochka oxirgi marta yuborilgan holati
         ]:
             try:
                 cursor.execute(f"ALTER TABLE leads ADD COLUMN {ustun_nomi} {ustun_turi};")
@@ -168,6 +173,9 @@ def init_db():
 
         # 6) Tizim sozlamalari (masalan, suhbat versiyasi)
         cursor.execute("CREATE TABLE IF NOT EXISTS meta (kalit TEXT PRIMARY KEY, qiymat TEXT);")
+
+        # 6b) Menejer o'rgatgan darslar (botni takomillashtirish: /dars buyrug'i)
+        cursor.execute("CREATE TABLE IF NOT EXISTS darslar (id INTEGER PRIMARY KEY AUTOINCREMENT, matn TEXT, created_at TEXT);")
 
         # 6a) Bot egalari jadvali
         cursor.execute("CREATE TABLE IF NOT EXISTS owners (user_id INTEGER PRIMARY KEY, updated_at TEXT);")
@@ -284,7 +292,7 @@ def is_owner_recently_active(chat_id: int, minutes: int = 30) -> bool:
         if row and row["owner_last_active"]:
             try:
                 last_time = datetime.strptime(row["owner_last_active"], "%Y-%m-%d %H:%M:%S")
-                return (datetime.now() - last_time).total_seconds() < (minutes * 60)
+                return (_hozir_dt() - last_time).total_seconds() < (minutes * 60)
             except ValueError:
                 return False
         return False
@@ -300,6 +308,7 @@ def clear_owner_activity(chat_id: int):
 LEAD_MAYDONLARI = (
     "full_name", "username", "telegram_id", "xulosa", "telefon", "tashkilot", "lavozim",
     "mavzu", "muhimlik", "mahsulot", "bosqich", "harorat", "summa", "holat",
+    "uslub", "karta_msglar", "karta_hash",
 )
 
 
@@ -346,7 +355,8 @@ def get_lead(chat_id: int) -> Optional[sqlite3.Row]:
 
 _LEAD_USTUNLARI = (
     "id, chat_id, full_name, username, telegram_id, xulosa, telefon, tashkilot, lavozim, "
-    "mavzu, muhimlik, mahsulot, bosqich, harorat, summa, holat, created_at, updated_at"
+    "mavzu, muhimlik, mahsulot, bosqich, harorat, summa, holat, uslub, karta_msglar, karta_hash, "
+    "created_at, updated_at"
 )
 
 
@@ -432,7 +442,7 @@ def get_chat_meta(chat_id: int) -> Optional[sqlite3.Row]:
 
 def menejer_chaqirish_mumkinmi(chat_id: int, minutes: int = 60) -> bool:
     """Menejerga bir chat bo'yicha tez-tez bildirishnoma yuborilmasligi uchun (spamdan himoya)."""
-    hozir = datetime.now()
+    hozir = _hozir_dt()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT menejer_chaqirilgan FROM chats WHERE chat_id = ?", (chat_id,))
@@ -563,7 +573,7 @@ def sorov_holatini_ozgartirish(sorov_id: int, eski_holatlar: tuple, yangi_holat:
 
 def get_eslatiladigan_sorovlar(daqiqa: int) -> List[sqlite3.Row]:
     """Ombor belgilangan vaqtdan beri javob bermagan va hali eslatilmagan so'rovlar."""
-    chegara = (datetime.now() - timedelta(minutes=daqiqa)).strftime("%Y-%m-%d %H:%M:%S")
+    chegara = (_hozir_dt() - timedelta(minutes=daqiqa)).strftime("%Y-%m-%d %H:%M:%S")
     belgilar = ",".join("?" for _ in FAOL_SOROV_HOLATLARI)
     with get_db() as conn:
         cursor = conn.cursor()
@@ -576,7 +586,7 @@ def get_eslatiladigan_sorovlar(daqiqa: int) -> List[sqlite3.Row]:
 
 def get_kuzatiladigan_takliflar(soat: int) -> List[sqlite3.Row]:
     """Taklif yuborilganidan beri belgilangan vaqt o'tgan va menejerga hali eslatilmagan takliflar."""
-    chegara = (datetime.now() - timedelta(hours=soat)).strftime("%Y-%m-%d %H:%M:%S")
+    chegara = (_hozir_dt() - timedelta(hours=soat)).strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -635,3 +645,94 @@ def suhbat_versiyasini_yangilash(versiya: str) -> bool:
             "INSERT OR REPLACE INTO meta (kalit, qiymat) VALUES ('suhbat_versiyasi', ?)", (versiya,)
         )
         return True
+
+
+# =====================================================================
+#  DARSLAR (menejer botga o'rgatgan qoidalar)
+# =====================================================================
+
+def add_dars(matn: str) -> int:
+    with get_db() as conn:
+        cursor = conn.execute("INSERT INTO darslar (matn, created_at) VALUES (?, ?)", (matn, _hozir()))
+        return cursor.lastrowid
+
+
+def get_darslar(limit: int = 30) -> List[sqlite3.Row]:
+    with get_db() as conn:
+        return conn.execute("SELECT id, matn, created_at FROM darslar ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def delete_dars(dars_id: int) -> bool:
+    with get_db() as conn:
+        return conn.execute("DELETE FROM darslar WHERE id = ?", (dars_id,)).rowcount == 1
+
+
+# =====================================================================
+#  ZAXIRA NUSXA (bepul serverda disk o'chganda bazani tiklash uchun)
+# =====================================================================
+
+def eski_xabarlarni_tozalash(kun: int = 60):
+    """Juda eski suhbat xabarlarini o'chiradi (zaxira hajmi kichik bo'lishi uchun). CRM saqlanadi."""
+    chegara = (_hozir_dt() - timedelta(days=kun)).strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        conn.execute("DELETE FROM messages WHERE created_at < ?", (chegara,))
+
+
+def snapshot_bytes() -> bytes:
+    """Bazaning izchil (consistent) nusxasini baytlar ko'rinishida qaytaradi (sqlite backup API)."""
+    import tempfile
+    fd, yol = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        manba = sqlite3.connect(DB_FAYLI, timeout=25.0)
+        nusxa = sqlite3.connect(yol)
+        try:
+            manba.backup(nusxa)
+        finally:
+            nusxa.close()
+            manba.close()
+        with open(yol, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(yol)
+
+
+def baza_bormi() -> bool:
+    """Diskda mazmunli baza bormi (server yangi ishga tushganda bo'sh bo'ladi)."""
+    if not os.path.exists(DB_FAYLI):
+        return False
+    try:
+        with get_db() as conn:
+            jadval = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leads'").fetchone()
+            if not jadval:
+                return False
+            leadlar = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+            xabarlar = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+            return leadlar + xabarlar > 0
+    except sqlite3.DatabaseError:
+        return False
+
+
+def restore_bytes(data: bytes):
+    """Zaxira nusxadan bazani tiklaydi (yaroqliligi tekshiriladi)."""
+    import tempfile
+    papka = os.path.dirname(DB_FAYLI) or "."
+    os.makedirs(papka, exist_ok=True)
+    fd, yol = tempfile.mkstemp(suffix=".db", dir=papka)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    try:
+        conn = sqlite3.connect(yol)
+        try:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise sqlite3.DatabaseError("Zaxira fayli buzilgan")
+        finally:
+            conn.close()
+        for qoshimcha in ("-wal", "-shm"):
+            if os.path.exists(DB_FAYLI + qoshimcha):
+                os.remove(DB_FAYLI + qoshimcha)
+        os.replace(yol, DB_FAYLI)
+    except Exception:
+        if os.path.exists(yol):
+            os.remove(yol)
+        raise

@@ -15,8 +15,14 @@ services:
         sync: false
       - key: OWNER_ID
         sync: false
+      - key: LIDLAR_CHAT_ID
+        sync: false
+      - key: ZAXIRA_CHAT_ID
+        sync: false
       - key: SKLAD_CHAT_ID
         sync: false
+      - key: TIMEZONE
+        value: Asia/Tashkent
       - key: KOMPANIYA_NOMI
         value: UMATIC
       - key: NARX_OMBORDAN
