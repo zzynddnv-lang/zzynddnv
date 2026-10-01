@@ -85,7 +85,16 @@ MODEL = os.getenv("MODEL", "openai/gpt-oss-120b")
 ZAXIRA_MODELLAR = [
     m.strip() for m in os.getenv("FALLBACK_MODELS", "qwen/qwen3.8-27b").split(",") if m.strip()
 ]
+# Sozlamalarda (MODEL/FALLBACK_MODELS) nima bo'lishidan qat'i nazar, shu modellar ham har doim sinaladi.
+# (Masalan, Render'da eski MODEL=qwen qolib ketsa ham bot bitta modelga bog'lanib qolmaydi.)
+# (gpt-oss-20b o'zbek tilida sifatsiz, llama esa Groq'dan olib tashlangan - shuning uchun qo'shilmagan.
+#  Ikkalasi ham ishlamasa, kod o'zi katalogdan foydali zaxira javob beradi.)
+ASOSIY_ZANJIR = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
 WHISPER_MODEL = "whisper-large-v3-turbo"
+
+# Serverdagi kod versiyasi (Render RENDER_GIT_COMMIT ni o'zi beradi) - /stats va /health da ko'rinadi
+VERSIYA = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "lokal")[:7]
+OXIRGI_AI_XATOSI = {"vaqt": "", "xato": ""}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LEADLAR_FAYLI = os.getenv("CSV_PATH") or os.path.join(BASE_DIR, "leadlar.csv")
@@ -196,6 +205,7 @@ QOIDALAR:
 6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. kVt, ob/min va miqdor ma'lum bo'lsa narx_sorash=true.
 7. Sen AI yordamchisan, odam ekanligingni da'vo qilma. Rasm/faylni ko'ra olmaysan - u menejerga yuborilgan.
 8. Boshqa mahsulot (nasos va h.k.) so'ralsa - hozircha faqat dvigatellar bilan ishlashimizni ayt, menejer_kerak=true.
+8a. Har qanday savolga O'ZING to'liq javob ber (bilimlar va katalog asosida) va ehtiyojga qarab aniq dvigatel tavsiya qil. "Menejer siz bilan bog'lanadi" deb FAQAT narx, chegirma, omborda borligi yoki yetkazib berish so'ralganda ayt - butun suhbatda ko'pi bilan 1 marta. Texnik va umumiy savollarni menejerga yo'naltirma.
 9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
 10. buyurtma_tasdiqlandi=true faqat mijoz yuborilgan taklifni aniq qabul qilsa.
 
@@ -205,7 +215,7 @@ Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, 
 BILIMLAR:
 {BILIMLAR}
 
-KATALOG (umatic.uz; format: model | kVt | ob/min | V | IP):
+KATALOG (umatic.uz; format: model | kVt | ob/min | V | IP | KPD):
 {katalog or "Mijoz quvvat (kVt) yoki tur (kran, portlashdan himoyalangan, sinxron, umumsanoat) aytganda mos modellar shu yerda beriladi. Hozircha turlarni va quvvat oraliqlarini tanishtir."}"""
 
 
@@ -297,7 +307,8 @@ def init_runtime():
     if db.suhbat_versiyasini_yangilash(SUHBAT_VERSIYASI):
         logging.warning("Suhbat versiyasi yangilandi (%s): eski suhbat tarixi tozalandi, CRM saqlandi.", SUHBAT_VERSIYASI)
     BILIMLAR = bilimlarni_yuklash()
-    logging.info("Bilimlar yuklandi: %s belgi", len(BILIMLAR))
+    logging.info("Bilimlar yuklandi: %s belgi | kod versiyasi: %s | AI modellari: %s", len(BILIMLAR), VERSIYA,
+                 ", ".join(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR)))
 
     if OWNER_IDS:
         logging.info("Bot egalari (OWNER_ID): %s", ", ".join(map(str, sorted(OWNER_IDS))))
@@ -505,9 +516,10 @@ async def _groq_sorov(model: str, messages: list) -> dict | None:
             **umumiy,
         )
     except Exception as e:
-        if "json_validate_failed" not in str(e):
+        matn = str(e).lower()
+        if not any(k in matn for k in ("json_validate_failed", "response_format", "json_schema", "structured")):
             raise
-        logging.info("Model '%s' qat'iy sxemani bajarmadi, oddiy JSON rejimida qayta so'ralmoqda.", model)
+        logging.info("Model '%s' qat'iy sxemani bajarmadi/qo'llamaydi, oddiy JSON rejimida qayta so'ralmoqda.", model)
         resp = await groq_chat.chat.completions.create(response_format={"type": "json_object"}, **umumiy)
     return sotuv.ai_natijasini_ajratish(resp.choices[0].message.content or "")
 
@@ -545,7 +557,7 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
         + tarix
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
-    modellar = list(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR))
+    modellar = list(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR))
     # Narxli taklif yuborilgan bo'lsagina AI undagi raqamlarni aytishi mumkin
     taklif_bor = holat.get("taklif") is not None and bool(holat["taklif"]["narxlar"])
     oxirgi_xato = None
@@ -633,6 +645,7 @@ async def _modellarni_sinash(modellar: list, messages: list, til: str, taklif_bo
             return natija, None, False
         except Exception as e:
             oxirgi_xato = e
+            OXIRGI_AI_XATOSI.update(vaqt=datetime.now().strftime("%d.%m %H:%M:%S"), xato=f"{m}: {str(e)[:300]}")
             if _limit_xatosimi(e):
                 limitlar += 1
                 logging.warning("Model '%s' limitda (429), zaxira modelga o'tilmoqda.", m)
@@ -1317,8 +1330,10 @@ async def stats_komandasi(message: types.Message):
         f"👥 Mijozlar: <b>{stats['total_leads']}</b>\n"
         f"✅ Buyurtma tasdiqlagan suhbatlar: <b>{stats['completed_chats']}</b>\n"
         f"⏳ Javob kutayotgan narx so'rovlari: <b>{len(db.get_faol_sorovlar())}</b>\n\n"
-        f"🧠 AI modeli: <code>{h(MODEL)}</code>\n"
-        f"🔁 Zaxira: <code>{h(', '.join(ZAXIRA_MODELLAR) or '-')}</code>\n"
+        f"🏷 Kod versiyasi: <code>{h(VERSIYA)}</code>\n"
+        f"🧠 AI modellari: <code>{h(', '.join(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR)))}</code>\n"
+        f"🔑 Groq kaliti: {'bor ✅' if GROQ_API_KEY else 'YOQ ❌'}\n"
+        f"⚠️ Oxirgi AI xatosi: {h(OXIRGI_AI_XATOSI['vaqt'] + ' ' + OXIRGI_AI_XATOSI['xato']) if OXIRGI_AI_XATOSI['xato'] else 'yo`q ✅'}\n"
         f"📚 Bilimlar: {len(BILIMLAR)} belgi\n"
         f"🏬 Ombor chati: <code>{SKLAD_CHAT_ID if SKLAD_CHAT_ID is not None else 'egalar'}</code>\n"
         f"📄 Google Sheets: {sheets}",
@@ -1516,11 +1531,17 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                 natija = await ai_javob(tarix, holat, til)
         except Exception as xato:
             logging.error("AI javob bera olmadi (chat %s): %s", chat_id, xato)
-            await javob_yubor(message, tmatn("ai_xato", til), is_business)
+            OXIRGI_AI_XATOSI.update(vaqt=datetime.now().strftime("%d.%m %H:%M:%S"), xato=str(xato)[:300])
+            # Menejerga yo'naltirish o'rniga foydali javob: mos katalog modellari yoki kerakli parametrlar
+            mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
+            zaxira = sotuv.zaxira_javob(til, sotuv.katalog_tanlash(KATALOG, mijoz_matni))
+            if await mijozga_yuborish(chat_id, bcid, zaxira) is None:
+                await asyncio.to_thread(db.add_message, chat_id, "assistant", zaxira)
             if await asyncio.to_thread(db.menejer_chaqirish_mumkinmi, chat_id, 30):
                 u = message.from_user
                 await egalarga_yuborish(
-                    "⚠️ <b>AI javob bera olmadi</b> (limit yoki xato). Mijozga «menejer javob beradi» deyildi.\n\n"
+                    "⚠️ <b>AI javob bera olmadi</b> (limit yoki xato). Mijozga avtomatik javob yuborildi.\n"
+                    f"Xato: <code>{h(qisqartir(str(xato), 200))}</code>\n\n"
                     f"👤 {mijoz_havolasi(u.id, u.full_name, f'@{u.username}' if u.username else '')}\n"
                     f"💬 {h(qisqartir(xabar_matni, 400))}\n🆔 Chat: <code>{chat_id}</code>",
                     ega_id,
@@ -1532,6 +1553,10 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             logging.info("AI javobi taqdimotni takrorlaydi - yuborilmadi (chat %s).", chat_id)
             await crm_yangilash_xavfsiz(chat_id, message.from_user, natija, holat, xabar_matni, bcid, ega_id)
             return
+
+        # "Menejer siz bilan bog'lanadi" har javobda takrorlanmasin (narx/mavjudlik so'ralgandagina)
+        oldin_menejer = any(m["role"] == "assistant" and sotuv.menejer_aytilganmi(m["content"]) for m in tarix[:-1])
+        javob = sotuv.takroriy_menejerni_olib_tashlash(javob, oldin_menejer, sotuv.narx_savolimi(xabar_matni))
 
         # AI qo'shimcha parametr so'rab turib qolsa ham: asosiy ma'lumot yetarli bo'lsa - narx so'rovi yuboriladi
         if not natija["narx_sorash"] and sotuv.narx_sorash_mumkinmi(natija["mahsulotlar"]):
@@ -1621,7 +1646,7 @@ async def fon_loop():
 # =====================================================================
 
 async def handle_ping(request):
-    return web.json_response({"status": "online", "service": f"{KOMPANIYA_NOMI} savdo boti"})
+    return web.json_response({"status": "online", "service": f"{KOMPANIYA_NOMI} savdo boti", "versiya": VERSIYA})
 
 
 async def start_web_server():

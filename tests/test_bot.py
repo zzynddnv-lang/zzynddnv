@@ -784,6 +784,102 @@ class TanishtiruvTest(unittest.TestCase):
         self.assertIn("Крановые", self.yuborilgan[0])
 
 
+class MenejerVaZaxiraTest(unittest.TestCase):
+    """Bot har narsaga "menejer bog'lanadi" demasligi va AI ishlamasa ham foydali javob berishi."""
+
+    def test_menejer_takrori_olib_tashlanadi(self):
+        javob = "АИР132М4У1 konveyer uchun mos, IP55 himoyaga ega. Menejerimiz tez orada siz bilan bog'lanadi."
+        self.assertEqual(sotuv.takroriy_menejerni_olib_tashlash(javob, True, False),
+                         "АИР132М4У1 konveyer uchun mos, IP55 himoyaga ega.")
+
+    def test_birinchi_marta_yoki_narx_sorasa_qoladi(self):
+        javob = "Bu model mos. Narx bo'yicha menejerimiz bog'lanadi."
+        self.assertEqual(sotuv.takroriy_menejerni_olib_tashlash(javob, False, False), javob)
+        self.assertEqual(sotuv.takroriy_menejerni_olib_tashlash(javob, True, True), javob)
+
+    def test_faqat_menejer_gapi_bosh_qolmaydi(self):
+        javob = "Menejerimiz tez orada siz bilan bog'lanadi."
+        self.assertEqual(sotuv.takroriy_menejerni_olib_tashlash(javob, True, False), javob)
+
+    def test_narx_savoli(self):
+        for x in ("narxi qancha?", "Сколько стоит?", "omborda bormi", "chegirma bormi", "Нархи неча пул?"):
+            self.assertTrue(sotuv.narx_savolimi(x), x)
+        for x in ("kafolati qancha?", "IP55 nima degani", "kran uchun qaysi biri yaxshi"):
+            self.assertFalse(sotuv.narx_savolimi(x), x)
+
+    def test_zaxira_javob_katalog_bilan(self):
+        b.bilimlarni_yuklash()
+        javob = sotuv.zaxira_javob("uz_latn", sotuv.katalog_tanlash(b.KATALOG, "11 kVt dvigatel"))
+        self.assertIn("АИР132М4У1", javob)
+        self.assertNotIn("enejer", javob)
+        self.assertFalse(sotuv.narx_aytilganmi(javob))
+
+    def test_zaxira_javob_katalogsiz_va_rus(self):
+        self.assertIn("kVt", sotuv.zaxira_javob("uz_latn", ""))
+        self.assertIn("кВт", sotuv.zaxira_javob("ru", ""))
+        self.assertNotIn("енеджер", sotuv.zaxira_javob("ru", ""))
+
+    def test_ai_ishlamasa_menejerga_yonaltirmaydi(self):
+        db.init_db()
+        with db.get_db() as conn:
+            for t in ("messages", "chats"):
+                conn.execute(f"DELETE FROM {t}")
+        yuborilgan = []
+
+        async def send_message(chat_id, text, **kw):
+            yuborilgan.append(text)
+            return SimpleNamespace(message_id=1)
+
+        async def noop(*a, **kw):
+            return None
+
+        async def buzuq_ai(*a, **kw):
+            raise RuntimeError("Error code: 429 rate_limit_exceeded")
+
+        b.bot = SimpleNamespace(send_message=send_message, send_chat_action=noop, id=999)
+        db.taqdimot_belgilash(50)
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=50), text="11 kVt 1500 ob/min dvigatel kerak", business_connection_id=None,
+            sender_business_bot=None, from_user=SimpleNamespace(id=50, username=None, full_name="M"),
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        with mock.patch.object(b, "ai_javob", buzuq_ai):
+            asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=False))
+        mijozga = yuborilgan[0]
+        self.assertIn("АИР132М4У1", mijozga)
+        self.assertNotIn("qabul qilindi", mijozga)
+        self.assertIn("429", b.OXIRGI_AI_XATOSI["xato"])
+
+    def test_json_schema_qollamaydigan_model(self):
+        """llama kabi model json_schema ni qo'llamasa - oddiy JSON rejimida qayta so'raladi."""
+        formatlar = []
+
+        async def create(**kw):
+            formatlar.append(kw["response_format"]["type"])
+            if kw["response_format"]["type"] == "json_schema":
+                raise RuntimeError("Error code: 400 - response_format `json_schema` is not supported with this model")
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=ai_json()))])
+
+        b.groq_chat = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        n = asyncio.run(b._groq_sorov("llama-3.3-70b-versatile", [{"role": "user", "content": "salom"}]))
+        self.assertEqual(formatlar, ["json_schema", "json_object"])
+        self.assertIsNotNone(n)
+
+    def test_zanjirda_doim_ishonchli_modellar(self):
+        # Render'da eski MODEL=qwen qolsa ham gpt-oss-120b sinaladi
+        with mock.patch.object(b, "MODEL", "qwen/qwen3.8-27b"), mock.patch.object(b, "ZAXIRA_MODELLAR", ["qwen/qwen3.8-27b"]):
+            chaqiruvlar = []
+
+            async def create(**kw):
+                chaqiruvlar.append(kw["model"])
+                raise RuntimeError("500")
+
+            b.groq_chat = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+            with mock.patch.object(b, "tizim_korsatmasi", return_value="t"), self.assertRaises(RuntimeError):
+                asyncio.run(b.ai_javob([{"role": "user", "content": "salom"}], {"faol": None, "taklif": None}))
+        self.assertEqual(chaqiruvlar, ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"])
+
+
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):
         """AI ikki marta narx o'ylab topsa - mijozga xavfsiz matn ketadi."""
@@ -829,7 +925,7 @@ class AiFallbackTest(unittest.TestCase):
         with mock.patch.object(b, "tizim_korsatmasi", return_value="test"), mock.patch.object(b, "LIMIT_KUTISH", 0):
             with self.assertRaises(RuntimeError):
                 asyncio.run(b.ai_javob([{"role": "user", "content": "нужен насос"}], {"faol": None, "taklif": None}, "ru"))
-        modellar_soni = len(set([b.MODEL] + b.ZAXIRA_MODELLAR))
+        modellar_soni = len(set([b.MODEL] + b.ZAXIRA_MODELLAR + b.ASOSIY_ZANJIR))
         self.assertEqual(len(chaqiruvlar), modellar_soni * 2 * 2)  # 2 aylanish x (javob + tuzatish)
 
     def test_takroriy_lekin_togri_tildagi_javob_yuboriladi(self):
@@ -861,7 +957,7 @@ class AiFallbackTest(unittest.TestCase):
 
     def test_hammasi_limitda_kutib_qayta_urinadi(self):
         chaqiruvlar = []
-        modellar_soni = len(set([b.MODEL] + b.ZAXIRA_MODELLAR))
+        modellar_soni = len(set([b.MODEL] + b.ZAXIRA_MODELLAR + b.ASOSIY_ZANJIR))
 
         async def create(**kw):
             chaqiruvlar.append(kw["model"])

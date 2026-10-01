@@ -654,6 +654,67 @@ def katalog_tanlash(bolimlar: dict[str, list[str]], mijoz_matni: str) -> str:
     return "\n".join(natija)
 
 
+# =====================================================================
+#  "MENEJER BOG'LANADI" TAKRORINI CHEKLASH VA ZAXIRA JAVOB
+# =====================================================================
+
+_MENEJER_REGEX = re.compile(r"menejer|менеджер|менежер|manager", re.IGNORECASE)
+_NARX_SAVOL_REGEX = re.compile(
+    r"narx|qancha\s+tur|necha\s+pul|so['‘’`]?m|chegirma|skidka|omborda|mavjudmi|yetkaz|dostavka|"
+    r"цен[аыу]|стоимост|сколько\s+стоит|скидк|наличи|доставк|нарх|неча\s+пул|чегирма|омборда|етказ",
+    re.IGNORECASE,
+)
+
+
+def menejer_aytilganmi(matn: str) -> bool:
+    return bool(_MENEJER_REGEX.search(matn or ""))
+
+
+def narx_savolimi(matn: str) -> bool:
+    """Mijoz narx, chegirma, mavjudlik yoki yetkazib berish haqida so'rayaptimi (menejer kerak bo'ladigan savol)?"""
+    return bool(_NARX_SAVOL_REGEX.search(matn or ""))
+
+
+def takroriy_menejerni_olib_tashlash(javob: str, oldin_aytilgan: bool, savol_narxmi: bool) -> str:
+    """
+    Bot har javobda "menejer siz bilan bog'lanadi" demasligi uchun: suhbatda bu allaqachon aytilgan bo'lsa
+    va mijoz narx/mavjudlik so'ramagan bo'lsa - "menejer" tilga olingan gaplar olib tashlanadi.
+    Javob bo'sh qolib ketsa - o'zgartirilmaydi.
+    """
+    if not oldin_aytilgan or savol_narxmi or not menejer_aytilganmi(javob):
+        return javob
+    gaplar = re.split(r"(?<=[.!?])\s+", javob.strip())
+    qolgan = [g for g in gaplar if not menejer_aytilganmi(g)]
+    natija = " ".join(qolgan).strip()
+    return natija if len(natija) >= 15 else javob
+
+
+_ZAXIRA_MATNLAR = {
+    "uz_latn": ("Katalogimizdan mos modellar:", "Qaysi biri sizga mos va nechta kerak bo'ladi?",
+                "Sizga mos dvigatelni tanlashim uchun quvvat (kVt), aylanish tezligi (ob/min) va dvigatel qaysi mexanizmda ishlashini yozing."),
+    "uz_cyrl": ("Каталогимиздан мос моделлар:", "Қайси бири сизга мос ва нечта керак бўлади?",
+                "Сизга мос двигателни танлашим учун қувват (кВт), айланиш тезлиги (об/мин) ва двигател қайси механизмда ишлашини ёзинг."),
+    "ru": ("Подходящие модели из нашего каталога:", "Какая из них вам подходит и сколько нужно?",
+           "Чтобы подобрать двигатель, напишите мощность (кВт), частоту вращения (об/мин) и для какого механизма он нужен."),
+}
+
+
+def zaxira_javob(til: str, katalog: str) -> str:
+    """
+    AI vaqtincha ishlamay qolganda ham mijozga FOYDALI javob (menejerga yo'naltirmasdan):
+    so'ralgan quvvatga mos katalog modellari yoki tanlash uchun kerakli parametrlar.
+    """
+    bosh, savol, umumiy = _ZAXIRA_MATNLAR.get(til, _ZAXIRA_MATNLAR["uz_latn"])
+    modellar = [q[2:] for q in (katalog or "").splitlines() if q.startswith("- ")][:3]
+    if not modellar:
+        return umumiy
+    qatorlar = []
+    for m in modellar:
+        qismlar = [x.strip() for x in m.split("|")]
+        qatorlar.append(f"• {qismlar[0]} — {', '.join(qismlar[1:4])}")
+    return "\n".join([bosh, *qatorlar, "", savol])
+
+
 def taqdimotni_takrorlaydimi(javob: str, taqdimot: str, chegara: float = 0.6) -> bool:
     """AI javobi taqdimotning biror xatboshisini (masalan, oxirgi savolni) deyarli takrorlayaptimi?"""
     from difflib import SequenceMatcher
