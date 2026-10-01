@@ -100,6 +100,7 @@ KEEPALIVE_ORALIQ = 10 * 60
 FON_TEKSHIRUV_ORALIQ = 5 * 60
 # Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
 SUHBAT_VERSIYASI = "umatic-savdo-1"
+TABIIY_MIN, TABIIY_MAX = 1.5, 3.5                                 # javob tezligi: juda tez ham emas (soniya)
 LIMIT_KUTISH = 15                                                # hamma modellar limitda bo'lsa, kutish (soniya)
 
 
@@ -120,16 +121,28 @@ csv_lock = asyncio.Lock()
 # =====================================================================
 
 BILIMLAR = ""
+KATALOG: dict[str, list[str]] = {}
+KATALOG_FAYLI = "04_katalog.md"
+
+
+def _izohsiz(matn: str) -> str:
+    matn = re.sub(r"<!--.*?-->", "", matn, flags=re.DOTALL)
+    return re.sub(r"\n{3,}", "\n\n", matn).strip()
 
 
 def bilimlarni_yuklash() -> str:
-    """bilimlar/*.md fayllarini o'qiydi. <!-- izohlar --> botga ko'rinmaydi."""
+    """
+    bilimlar/*.md fayllarini o'qiydi (<!-- izohlar --> botga ko'rinmaydi).
+    Katalog (04_katalog.md) alohida yuklanadi: har so'rovga butun katalog emas, faqat mijozga mos qismi qo'shiladi.
+    """
+    global KATALOG
     qismlar = []
     for yol in sorted(glob.glob(os.path.join(BILIMLAR_PAPKASI, "*.md"))):
         with open(yol, encoding="utf-8") as f:
-            matn = f.read()
-        matn = re.sub(r"<!--.*?-->", "", matn, flags=re.DOTALL)
-        matn = re.sub(r"\n{3,}", "\n\n", matn).strip()
+            matn = _izohsiz(f.read())
+        if os.path.basename(yol) == KATALOG_FAYLI:
+            KATALOG = sotuv.katalogni_ajratish(matn)
+            continue
         if matn:
             qismlar.append(matn)
     natija = "\n\n".join(qismlar)
@@ -165,7 +178,7 @@ def tanishtiruv_matni(til: str) -> str:
     return tmatn("start", til).format(kompaniya=KOMPANIYA_NOMI)
 
 
-def tizim_korsatmasi() -> str:
+def tizim_korsatmasi(katalog: str = "") -> str:
     # Ixcham yozilgan: Groq bepul tarifida bitta so'rov 7000 tokendan oshmasligi kerak
     return f"""Sen "{KOMPANIYA_NOMI}" kompaniyasining Telegramdagi AI savdo menejerisan. Kompaniya ELEKTR DVIGATELLAR sotadi.
 Vazifang: dvigatellarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sotuvga olib borish, CRM uchun ma'lumot yig'ish.
@@ -190,7 +203,10 @@ JSON: mahsulotlar - suhbatdagi barcha pozitsiyalarning so'nggi holati (miqdor no
 Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, mahsulotlar[{{nomi, parametrlar, miqdor, birlik}}], narx_sorash, buyurtma_tasdiqlandi, bosqich, harorat, menejer_kerak, menejer_sababi, xulosa.
 
 BILIMLAR:
-{BILIMLAR}"""
+{BILIMLAR}
+
+KATALOG (umatic.uz; format: model | kVt | ob/min | V | IP):
+{katalog or "Mijoz quvvat (kVt) yoki tur (kran, portlashdan himoyalangan, sinxron, umumsanoat) aytganda mos modellar shu yerda beriladi. Hozircha turlarni va quvvat oraliqlarini tanishtir."}"""
 
 
 def _narx_qoidasi() -> str:
@@ -389,6 +405,37 @@ async def mijozga_yuborish(chat_id: int, business_connection_id: str | None, mat
         return str(e)
 
 
+class YozmoqdaHolati:
+    """Javob tayyorlanayotganda mijozga "yozmoqda..." ni uzluksiz ko'rsatib turadi (Telegram uni ~5 s da o'chiradi)."""
+
+    def __init__(self, chat_id: int, bcid: str | None):
+        self.chat_id, self.bcid, self._task = chat_id, bcid, None
+
+    async def _loop(self):
+        while True:
+            try:
+                await bot.send_chat_action(chat_id=self.chat_id, action="typing", business_connection_id=self.bcid)
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+
+    async def __aenter__(self):
+        self._task = asyncio.create_task(self._loop())
+        return self
+
+    async def __aexit__(self, *exc):
+        self._task.cancel()
+
+
+def tabiiy_kutish(matn: str, boshlangan: float) -> float:
+    """
+    Javob juda tez (robotdek) kelmasligi uchun: kamida ~1,5–3,5 s (matn uzunligiga qarab).
+    AI allaqachon shuncha vaqt olgan bo'lsa - qo'shimcha kutilmaydi.
+    """
+    maqsad = min(TABIIY_MIN + len(matn or "") / 300, TABIIY_MAX)
+    return max(0.0, maqsad - (asyncio.get_running_loop().time() - boshlangan))
+
+
 async def javob_yubor(message: types.Message, matn: str, is_business: bool = True):
     """Mijozga kelgan xabar kanali orqali javob yuboradi."""
     bcid = message.business_connection_id if is_business else None
@@ -490,8 +537,11 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     Muammo bo'lsa bir marta qayta so'raydi. Model ishlamasa - zaxira modellarga o'tadi.
     """
     birinchi = not any(m.get("role") == "assistant" for m in tarix)
+    # Katalogdan faqat mijoz so'roviga mos qism (token tejash -> limitga kamroq urilish -> tezroq javob)
+    mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
+    katalog = sotuv.katalog_tanlash(KATALOG, mijoz_matni)
     messages = (
-        [{"role": "system", "content": tizim_korsatmasi()}]
+        [{"role": "system", "content": tizim_korsatmasi(katalog)}]
         + tarix
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
@@ -509,10 +559,23 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
             return natija
         if not hammasi_limit or urinish == 1:
             break
-        logging.warning("Barcha modellar limitda, %s soniya kutilmoqda...", LIMIT_KUTISH)
-        await asyncio.sleep(LIMIT_KUTISH)
+        kutish = _kutish_vaqti(oxirgi_xato)
+        logging.warning("Barcha modellar limitda, %.1f soniya kutilmoqda...", kutish)
+        await asyncio.sleep(kutish)
 
     raise oxirgi_xato or RuntimeError("Barcha modellar yaroqsiz javob qaytardi")
+
+
+def _kutish_vaqti(xato: Exception | None) -> float:
+    """
+    Groq limit xabaridagi aniq kutish vaqtini oladi ("try again in 6.0s", "in 1m2.5s").
+    Topilmasa - LIMIT_KUTISH. Juda uzoq kutilmaydi (mijoz kutib qolmasligi uchun ko'pi bilan 20 s).
+    """
+    m = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", str(xato or ""))
+    if not m:
+        return float(LIMIT_KUTISH)
+    soniya = int(m.group(1) or 0) * 60 + float(m.group(2))
+    return min(max(soniya + 0.5, 2.0), 20.0)
 
 
 def _limit_xatosimi(e: Exception) -> bool:
@@ -1266,7 +1329,7 @@ async def stats_komandasi(message: types.Message):
 @dp.message(Command("bilim"), EgaFilter())
 async def bilim_komandasi(message: types.Message):
     global BILIMLAR
-    BILIMLAR = bilimlarni_yuklash()
+    BILIMLAR = bilimlarni_yuklash()  # katalog ham qayta yuklanadi
     fayllar = [os.path.basename(f) for f in sorted(glob.glob(os.path.join(BILIMLAR_PAPKASI, "*.md")))]
     await message.answer(
         f"📚 Bilimlar qayta yuklandi: <b>{len(BILIMLAR)}</b> belgi\n"
@@ -1420,11 +1483,7 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             await asyncio.to_thread(db.clear_chat_history, chat_id)
 
         tarix = await asyncio.to_thread(db.get_chat_history, chat_id, MAX_TARIX)
-
-        try:
-            await bot.send_chat_action(chat_id=chat_id, action="typing", business_connection_id=bcid)
-        except Exception:
-            pass
+        boshlangan = asyncio.get_running_loop().time()
 
         # Mijoz tilini dastur aniqlaydi (AI ga ishonib qolinmaydi): javob va taklif shu tilda bo'ladi
         meta = await asyncio.to_thread(db.get_chat_meta, chat_id)
@@ -1438,6 +1497,8 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         taqdimot_hozir = False
         if not await asyncio.to_thread(db.taqdimot_yuborilganmi, chat_id):
             tanishtiruv = tanishtiruv_matni(til)
+            async with YozmoqdaHolati(chat_id, bcid):
+                await asyncio.sleep(tabiiy_kutish(tanishtiruv, boshlangan))
             if await mijozga_yuborish(chat_id, bcid, tanishtiruv) is None:
                 await asyncio.to_thread(db.taqdimot_belgilash, chat_id)
                 await asyncio.to_thread(db.add_message, chat_id, "assistant", TAQDIMOT_BELGISI)
@@ -1448,9 +1509,11 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                     return
 
         holat = await asyncio.to_thread(suhbat_holati, chat_id)
+        boshlangan = asyncio.get_running_loop().time()
 
         try:
-            natija = await ai_javob(tarix, holat, til)
+            async with YozmoqdaHolati(chat_id, bcid):
+                natija = await ai_javob(tarix, holat, til)
         except Exception as xato:
             logging.error("AI javob bera olmadi (chat %s): %s", chat_id, xato)
             await javob_yubor(message, tmatn("ai_xato", til), is_business)
@@ -1480,6 +1543,10 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         oldin_rahmat = any(m["role"] == "assistant" and sotuv.rahmat_aytilganmi(m["content"]) for m in tarix)
         javob = sotuv.takroriy_rahmatni_olib_tashlash(javob, oldin_rahmat, natija["mijoz"]["ism"])
 
+        kutish = tabiiy_kutish(javob, boshlangan)
+        if kutish:
+            async with YozmoqdaHolati(chat_id, bcid):
+                await asyncio.sleep(kutish)
         xato = await mijozga_yuborish(chat_id, bcid, javob)
         if xato:
             return

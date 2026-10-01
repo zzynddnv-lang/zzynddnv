@@ -51,43 +51,36 @@ JAVOB_SXEMASI = {
         "buyurtma_tasdiqlandi", "bosqich", "harorat", "menejer_kerak", "menejer_sababi", "xulosa",
     ],
     "properties": {
-        "javob": _str("Mijozga yuboriladigan xabar matni (mijoz tilida)"),
-        "til": {"type": "string", "enum": list(TILLAR), "description": "Mijoz yozayotgan til"},
+        "javob": _str("Mijozga xabar"),
+        "til": {"type": "string", "enum": list(TILLAR)},
         "mijoz": {
             "type": "object",
             "additionalProperties": False,
             "required": ["ism", "telefon", "kompaniya", "lavozim", "soha"],
-            "properties": {
-                "ism": _str("Mijoz o'zi aytgan ismi, aytilmagan bo'lsa bo'sh"),
-                "telefon": _str("Mijoz yozgan telefon raqami, bo'lmasa bo'sh"),
-                "kompaniya": _str("Kompaniya / tashkilot nomi, bo'lmasa bo'sh"),
-                "lavozim": _str("Lavozimi (bosh muhandis, xarid bo'limi...), bo'lmasa bo'sh"),
-                "soha": _str("Faoliyat sohasi, bo'lmasa bo'sh"),
-            },
+            "properties": {k: {"type": "string"} for k in ("ism", "telefon", "kompaniya", "lavozim", "soha")},
         },
-        "ehtiyoj": _str("Mijoz ehtiyoji va muammosi qisqacha"),
+        "ehtiyoj": {"type": "string"},
         "mahsulotlar": {
             "type": "array",
-            "description": "Mijoz so'rayotgan aniq pozitsiyalar (butun suhbat bo'yicha, eng so'nggi holati)",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
                 "required": ["nomi", "parametrlar", "miqdor", "birlik"],
                 "properties": {
-                    "nomi": _str("Mahsulot nomi/turi"),
-                    "parametrlar": _str("Texnik parametrlar: kVt, ob/min, V, o'rnatish, IP, sarf, napor..."),
-                    "miqdor": {"type": "integer", "description": "Soni; noma'lum bo'lsa 0"},
-                    "birlik": _str("dona, metr, kg, komplekt"),
+                    "nomi": {"type": "string"},
+                    "parametrlar": _str("kVt, ob/min, V, o'rnatish, IP"),
+                    "miqdor": {"type": "integer"},
+                    "birlik": {"type": "string"},
                 },
             },
         },
-        "narx_sorash": {"type": "boolean", "description": "Pozitsiya va miqdor aniq, mijoz narx/taklif kutmoqda"},
-        "buyurtma_tasdiqlandi": {"type": "boolean", "description": "Mijoz taklifni qabul qilib, buyurtmani aniq tasdiqladi"},
+        "narx_sorash": {"type": "boolean"},
+        "buyurtma_tasdiqlandi": {"type": "boolean"},
         "bosqich": {"type": "string", "enum": list(BOSQICHLAR)},
-        "harorat": {"type": "string", "enum": list(HARORATLAR), "description": "Mijozning sotib olishga tayyorligi"},
-        "menejer_kerak": {"type": "boolean", "description": "Jonli menejer aralashuvi kerak"},
-        "menejer_sababi": _str("Nega menejer kerak (chegirma, murakkab texnik savol, shikoyat, qo'ng'iroq so'radi)"),
-        "xulosa": _str("CRM uchun suhbat xulosasi, 1-2 gap"),
+        "harorat": {"type": "string", "enum": list(HARORATLAR)},
+        "menejer_kerak": {"type": "boolean"},
+        "menejer_sababi": {"type": "string"},
+        "xulosa": {"type": "string"},
     },
 }
 
@@ -584,7 +577,7 @@ _RAHMAT_TOLDIRUVCHI = re.compile(
 )
 
 
-def takrorlanganmi(javob: str, oldingilar, chegara: float = 0.8) -> bool:
+def takrorlanganmi(javob: str, oldingilar, chegara: float = 0.9) -> bool:
     """Javob oldingi bot javoblaridan birini deyarli so'zma-so'z takrorlayaptimi?"""
     from difflib import SequenceMatcher
 
@@ -596,6 +589,69 @@ def takrorlanganmi(javob: str, oldingilar, chegara: float = 0.8) -> bool:
         if eski and SequenceMatcher(None, yangi, eski).ratio() >= chegara:
             return True
     return False
+
+
+# =====================================================================
+#  KATALOGDAN KERAKLI QISMNI TANLASH (token tejash - har safar 40 ta model yuborilmaydi)
+# =====================================================================
+
+_TUR_KALITLARI = {
+    # So'z boshidan (\b) qidiriladi: "экран" -> "кран", "магазин" -> "газ" kabi xato mosliklar bo'lmasligi uchun.
+    # Uzbekcha "va" bog'lovchisi VA seriyasi deb olinmasligi uchun faqat "VA 160", "VAO" kabi yozuvlar.
+    "AIR": r"umumsanoat|asinxron|асинхрон|общепром|\bair|\bаир|\bnasos|\bнасос|konveyer|конвейер|ventilyator|вентилятор|kompressor|компрессор|stanok|станок",
+    "MTN": r"\bkran|\bкран|ko['‘’`]?tarish|подъ[её]м|\blift|\bлифт|\bmtn|\bмтн|\bmtkn|\bмткн|metallurg|металлург",
+    "VA": r"portla|взрыв|\bex\b|\bneft|\bнефт|\bgaz\b|\bгаз\b|shaxta|шахт|kimyo|хими|\bva\s?\d|\bvao|\bва\s?\d|\bвао",
+    "SD": r"sinxron|синхрон|\bsd\d|\bsdm|\bсд\d|\bсдм|\bсдв|\bvds|\bвдс|\bstdm|\bстдм|tegirmon|мельниц|\d+\s*kv\b|\d+\s*кв\b",
+}
+
+
+def katalogni_ajratish(matn: str) -> dict[str, list[str]]:
+    """04_katalog.md matnini bo'limlarga ajratadi: {"AIR": [qatorlar], ...}."""
+    bolimlar, joriy = {}, None
+    for qator in (matn or "").splitlines():
+        if qator.startswith("## "):
+            sarlavha = qator.upper()
+            joriy = next((k for k in ("AIR", "MTN", "VA", "SD") if k in sarlavha), None)
+            if joriy:
+                bolimlar[joriy] = [qator.strip()]
+        elif joriy and qator.startswith("- "):
+            bolimlar[joriy].append(qator.strip())
+    return bolimlar
+
+
+def _qator_kvt(qator: str) -> float:
+    m = re.search(r"\|\s*([\d\s]+(?:,\d+)?)\s*kVt", qator)
+    return float(m.group(1).replace(" ", "").replace(",", ".")) if m else 0.0
+
+
+def katalog_tanlash(bolimlar: dict[str, list[str]], mijoz_matni: str) -> str:
+    """
+    Mijoz yozganlariga qarab katalogdan kerakli qismni tanlaydi:
+    - quvvat (kVt) aytilgan bo'lsa - shu quvvatga yaqin (0,5x–2x) modellar;
+    - tur aytilgan bo'lsa (kran, portlashdan himoya, sinxron...) - shu bo'lim;
+    - hech narsa aytilmagan bo'lsa - katalog yuborilmaydi (umumiy ma'lumot bilimlarda bor).
+    """
+    if not bolimlar:
+        return ""
+    past = (mijoz_matni or "").lower()
+    # "kVt", "квт", "kW" - quvvat; "кВ"/"kV" (kilovolt) - quvvat emas
+    kvtlar = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:kvt|квт|kwt|kw)\b", past)]
+    turlar = [k for k, naqsh in _TUR_KALITLARI.items() if k in bolimlar and re.search(naqsh, past)]
+    if not kvtlar and not turlar:
+        return ""
+
+    natija = []
+    for tur in (turlar or list(bolimlar)):
+        sarlavha, *qatorlar = bolimlar[tur]
+        if kvtlar:
+            mos = [q for q in qatorlar if any(k * 0.5 <= _qator_kvt(q) <= k * 2 for k in kvtlar)]
+            if not mos and turlar:
+                # Aytilgan turda yaqin quvvat bo'lmasa - eng yaqin 2 tasi
+                mos = sorted(qatorlar, key=lambda q: min(abs(_qator_kvt(q) - k) for k in kvtlar))[:2]
+            qatorlar = mos
+        if qatorlar:
+            natija.append("\n".join([sarlavha, *qatorlar]))
+    return "\n".join(natija)
 
 
 def taqdimotni_takrorlaydimi(javob: str, taqdimot: str, chegara: float = 0.6) -> bool:

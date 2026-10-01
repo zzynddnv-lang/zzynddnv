@@ -33,6 +33,54 @@ import sotuv  # noqa: E402
 import taklif_pdf  # noqa: E402
 import zuxriddin_yordamchi_bot as b  # noqa: E402
 
+# Testlarda "tabiiy tezlik" kutishi o'chiriladi (testlar tez ishlashi uchun)
+b.TABIIY_MIN = b.TABIIY_MAX = 0
+
+
+class TezlikTest(unittest.TestCase):
+    """Token tejash (katalogdan faqat kerakli qism) va aqlli kutish."""
+
+    @classmethod
+    def setUpClass(cls):
+        b.bilimlarni_yuklash()
+
+    def test_katalog_bilimlarga_qoshilmaydi_alohida_yuklanadi(self):
+        bilim = b.bilimlarni_yuklash()
+        self.assertNotIn("АИР132М4У1", bilim)
+        self.assertEqual(set(b.KATALOG), {"AIR", "MTN", "VA", "SD"})
+        self.assertEqual(sum(len(v) - 1 for v in b.KATALOG.values()), 40)
+
+    def test_umumiy_savolda_katalog_yuborilmaydi(self):
+        self.assertEqual(sotuv.katalog_tanlash(b.KATALOG, "salom, dvigatel kerak edi"), "")
+
+    def test_quvvat_boyicha_yaqin_modellar(self):
+        k = sotuv.katalog_tanlash(b.KATALOG, "11 kVt 1500 aylanishli dvigatel kerak")
+        self.assertIn("АИР132М4У1", k)
+        self.assertNotIn("ВАО-5000", k)
+        self.assertLess(len(k), 1200)
+
+    def test_tur_boyicha(self):
+        self.assertIn("МТН", sotuv.katalog_tanlash(b.KATALOG, "kran uchun dvigatel"))
+        self.assertIn("ВА225М6", sotuv.katalog_tanlash(b.KATALOG, "нужен взрывозащищённый 37 кВт"))
+        self.assertIn("СДВ", sotuv.katalog_tanlash(b.KATALOG, "sinxron dvigatel kerak"))
+
+    def test_xato_mosliklar_yoq(self):
+        # "va" bog'lovchisi, "экран", "магазин" - katalog bo'limini tanlamasligi kerak
+        self.assertEqual(sotuv.katalog_tanlash(b.KATALOG, "men va do'stim keldik"), "")
+        self.assertEqual(sotuv.katalog_tanlash(b.KATALOG, "экран и магазин"), "")
+
+    def test_kilovolt_quvvat_emas(self):
+        # "6 кВ" - yuqori kuchlanish: sinxron bo'lim to'liq tanlanadi, 6 kVt deb filtrlanmaydi
+        k = sotuv.katalog_tanlash(b.KATALOG, "kuchlanish 6 кВ")
+        self.assertIn("ВДС-375", k)  # 12 500 kVt - 6 kVt ga "yaqin" deb tashlab yuborilmagan
+
+    def test_kutish_vaqti(self):
+        self.assertAlmostEqual(b._kutish_vaqti(RuntimeError("Please try again in 6.008s.")), 6.508, places=2)
+        self.assertEqual(b._kutish_vaqti(RuntimeError("try again in 1m30s")), 20.0)  # ko'pi bilan 20 s
+        self.assertEqual(b._kutish_vaqti(RuntimeError("try again in 0.2s")), 2.0)
+        self.assertEqual(b._kutish_vaqti(RuntimeError("boshqa xato")), float(b.LIMIT_KUTISH))
+
+
 POZ = [
     {"nomi": "Elektr dvigatel", "parametrlar": "15 kVt, 1500 ob/min", "miqdor": 3, "birlik": "dona"},
     {"nomi": "Nasos", "parametrlar": "", "miqdor": 1, "birlik": "dona"},
