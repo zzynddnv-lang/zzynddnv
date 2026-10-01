@@ -880,6 +880,97 @@ class MenejerVaZaxiraTest(unittest.TestCase):
         self.assertEqual(chaqiruvlar, ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"])
 
 
+class MenejerPauzaTest(unittest.TestCase):
+    """Menejer chatga qo'shilsa - FAQAT o'sha chatda 5 daqiqa pauza, keyin bot o'zi qaytadi."""
+
+    EGA = 7000
+    BCID = "biz-conn"
+
+    def setUp(self):
+        db.init_db()
+        with db.get_db() as conn:
+            for t in ("messages", "chats", "leads", "sorovlar"):
+                conn.execute(f"DELETE FROM {t}")
+        b.egalar.clear()
+        b.egalar[self.BCID] = self.EGA
+        self.yuborilgan = []
+
+        async def send_message(chat_id, text, **kw):
+            self.yuborilgan.append((chat_id, text))
+            return SimpleNamespace(message_id=1)
+
+        async def noop(*a, **kw):
+            return None
+
+        b.bot = SimpleNamespace(send_message=send_message, send_chat_action=noop, id=999)
+
+        async def soxta_ai(tarix, holat, til="uz_latn"):
+            self.oxirgi_tarix = list(tarix)
+            n = sotuv.ai_natijasini_ajratish(ai_json(javob="MTN 411-8 kran uchun mos. Nechta kerak?"))
+            n["_birinchi"] = False
+            n["til"] = til
+            return n
+
+        p = mock.patch.object(b, "ai_javob", soxta_ai)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(b.egalar.clear)
+
+    def _xabar(self, chat_id, matn, kimdan):
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=chat_id), text=matn, business_connection_id=self.BCID, sender_business_bot=None,
+            from_user=SimpleNamespace(id=kimdan, username=None, full_name="X"),
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=True))
+
+    def _bot_javoblari(self, chat_id):
+        return [t for c, t in self.yuborilgan if c == chat_id]
+
+    def _vaqtni_orqaga_surish(self, chat_id, daqiqa):
+        from datetime import datetime, timedelta
+        vaqt = (datetime.now() - timedelta(minutes=daqiqa)).strftime("%Y-%m-%d %H:%M:%S")
+        with db.get_db() as conn:
+            conn.execute("UPDATE chats SET owner_last_active = ? WHERE chat_id = ?", (vaqt, chat_id))
+
+    def test_standart_pauza_5_daqiqa(self):
+        self.assertEqual(b.EGA_PAUZA_DAQIQA, 5)
+
+    def test_faqat_yozilgan_chat_toxtaydi(self):
+        self._xabar(60, "Assalomu alaykum, men menejerman", self.EGA)  # menejer 60-chatga yozdi
+        self._xabar(60, "kran uchun dvigatel kerak", 601)           # mijoz shu chatda
+        self._xabar(61, "kran uchun dvigatel kerak", 611)           # boshqa mijoz, boshqa chat
+        self.assertEqual(self._bot_javoblari(60), [])                # 60 - pauzada
+        self.assertTrue(self._bot_javoblari(61))                     # 61 - bot ishlayapti
+
+    def test_5_daqiqadan_keyin_ozi_qaytadi(self):
+        self._xabar(62, "Salom, qanday yordam kerak?", self.EGA)
+        self._vaqtni_orqaga_surish(62, 4)
+        self._xabar(62, "kran uchun dvigatel", 621)
+        self.assertEqual(self._bot_javoblari(62), [])  # 4 daqiqa - hali pauza
+        self._vaqtni_orqaga_surish(62, 6)
+        self._xabar(62, "15 kVt kerak", 621)
+        javoblar = self._bot_javoblari(62)
+        self.assertEqual(len(javoblar), 1)            # 6 daqiqa - bot qaytdi
+        self.assertNotIn("UMATIC —", javoblar[0])      # menejer suhbatiga taqdimot tashlanmaydi
+
+    def test_menejer_yozganlari_bot_xotirasida(self):
+        self._xabar(63, "Bu dvigatel ertaga keladi", self.EGA)
+        self._xabar(63, "yaxshi, rahmat", 631)  # pauza paytida - javob yo'q, lekin xotiraga yoziladi
+        self._vaqtni_orqaga_surish(63, 6)
+        self._xabar(63, "yana bitta savol bor", 631)
+        mazmun = [m["content"] for m in self.oxirgi_tarix]
+        self.assertIn("(Menejer yozdi) Bu dvigatel ertaga keladi", mazmun)
+        self.assertIn("yaxshi, rahmat", mazmun)
+
+    def test_har_bir_menejer_xabari_pauzani_uzaytiradi(self):
+        self._xabar(64, "birinchi xabar", self.EGA)
+        self._vaqtni_orqaga_surish(64, 6)
+        self._xabar(64, "yana yozdim", self.EGA)  # suhbat davom etmoqda - pauza qaytadan 5 daqiqa
+        self._xabar(64, "savol", 641)
+        self.assertEqual(self._bot_javoblari(64), [])
+
+
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):
         """AI ikki marta narx o'ylab topsa - mijozga xavfsiz matn ketadi."""

@@ -104,7 +104,8 @@ MAX_TARIX = 10                                                   # AI ga berilad
 SESSIYA_SOAT = int(os.getenv("SESSIYA_SOAT", "72"))              # shundan keyin suhbat xotirasi yangilanadi
 SKLAD_ESLATMA_DAQIQA = int(os.getenv("SKLAD_ESLATMA_DAQIQA", "30"))  # ombor javob bermasa eslatish
 KUZATISH_SOAT = int(os.getenv("KUZATISH_SOAT", "6"))             # taklifga javob bo'lmasa menejerga eslatish
-EGA_PAUZA_DAQIQA = 30                                            # menejer o'zi yozsa, bot shuncha jim turadi
+# Menejer chatga o'zi yozsa, bot FAQAT o'sha chatda shuncha daqiqa jim turadi (oxirgi xabaridan hisoblanadi)
+EGA_PAUZA_DAQIQA = int(os.getenv("EGA_PAUZA_DAQIQA", "5"))
 KEEPALIVE_ORALIQ = 10 * 60
 FON_TEKSHIRUV_ORALIQ = 5 * 60
 # Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
@@ -204,6 +205,7 @@ QOIDALAR:
 5. Javob 2-4 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
 6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. kVt, ob/min va miqdor ma'lum bo'lsa narx_sorash=true.
 7. Sen AI yordamchisan, odam ekanligingni da'vo qilma. Rasm/faylni ko'ra olmaysan - u menejerga yuborilgan.
+7a. "(Menejer yozdi)" bilan boshlangan xabarlarni jonli menejer yozgan: ularga zid gapirma, uning aytganlarini davom ettir, bu belgini o'zing yozma.
 8. Boshqa mahsulot (nasos va h.k.) so'ralsa - hozircha faqat dvigatellar bilan ishlashimizni ayt, menejer_kerak=true.
 8a. Har qanday savolga O'ZING to'liq javob ber (bilimlar va katalog asosida) va ehtiyojga qarab aniq dvigatel tavsiya qil. "Menejer siz bilan bog'lanadi" deb FAQAT narx, chegirma, omborda borligi yoki yetkazib berish so'ralganda ayt - butun suhbatda ko'pi bilan 1 marta. Texnik va umumiy savollarni menejerga yo'naltirma.
 9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
@@ -1473,16 +1475,25 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
     if is_business and bcid:
         # Botning o'zi business akkaunt nomidan yuborgan xabar ham update bo'lib qaytadi -
-        # uni menejer yozgan deb hisoblamaslik kerak (aks holda bot o'zini 30 daqiqaga o'chirib qo'yadi)
+        # uni menejer yozgan deb hisoblamaslik kerak (aks holda bot o'zini pauzaga qo'yib qo'yadi)
         if message.sender_business_bot is not None:
             return
         ega_id = await ega_id_ol(bcid)
-        # Menejer (akkaunt egasi) o'zi yozsa - bot jim turadi
+        # Menejer (akkaunt egasi) o'zi yozsa - FAQAT shu chatda bot pauza qiladi (boshqa chatlarda ishlayveradi).
+        # Pauza menejerning OXIRGI xabaridan EGA_PAUZA_DAQIQA o'tgach o'zi tugaydi.
         if message.from_user is None or message.from_user.id == ega_id:
             await asyncio.to_thread(db.record_owner_activity, chat_id)
+            # Menejer suhbatga qo'shilgan - bu chatga keyin UMATIC taqdimoti tashlanmaydi
+            await asyncio.to_thread(db.taqdimot_belgilash, chat_id)
+            # Menejer yozganlari bot xotirasiga - pauzadan keyin bot suhbatni davom ettira olsin
+            if message.text and not message.text.startswith("/"):
+                await asyncio.to_thread(db.add_message, chat_id, "assistant", f"(Menejer yozdi) {message.text.strip()}")
             return
         if await asyncio.to_thread(db.is_owner_recently_active, chat_id, EGA_PAUZA_DAQIQA):
-            logging.info("Chat %s da menejer faol, bot aralashmaydi.", chat_id)
+            logging.info("Chat %s da menejer faol (pauza %s daqiqa), bot aralashmaydi.", chat_id, EGA_PAUZA_DAQIQA)
+            # Mijoz yozganlari ham xotiraga - pauzadan keyin bot kontekstni bilsin
+            if message.text and message.text.strip():
+                await asyncio.to_thread(db.add_message, chat_id, "user", message.text.strip())
             return
 
     if message.from_user is None:
@@ -1548,7 +1559,8 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                 )
             return
 
-        javob = sotuv.salomni_moslash(natija["javob"], natija["_birinchi"], til)
+        javob = re.sub(r"^\s*\(Menejer yozdi\)\s*", "", natija["javob"])
+        javob = sotuv.salomni_moslash(javob, natija["_birinchi"], til)
         if taqdimot_hozir and sotuv.taqdimotni_takrorlaydimi(javob, tanishtiruv_matni(til)) and not natija["narx_sorash"]:
             logging.info("AI javobi taqdimotni takrorlaydi - yuborilmadi (chat %s).", chat_id)
             await crm_yangilash_xavfsiz(chat_id, message.from_user, natija, holat, xabar_matni, bcid, ega_id)

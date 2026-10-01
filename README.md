@@ -123,7 +123,7 @@ python -m unittest discover -s tests -v
 ### Buyruqlar (faqat egalar uchun)
 `/leads` · `/sorovlar` · `/export` · `/stats` · `/bilim` · `/chatid` · `/resume <chat_id>` · `/reset <chat_id>` · `/help`
 
-Menejer Telegram Business chatida mijozga o'zi yozsa, bot shu chatda 30 daqiqa jim turadi.
+Menejer Telegram Business chatida mijozga o'zi yozsa, bot **faqat shu chatda** pauza qiladi va menejerning oxirgi xabaridan **5 daqiqa** o'tgach o'zi qayta ishga tushadi (boshqa chatlarda ishlashda davom etadi). Menejer yozganlari bot xotirasiga tushadi — bot qaytganda suhbatni davom ettiradi. Darhol qayta yoqish: `/resume <chat_id>`. Muddatni o'zgartirish: `EGA_PAUZA_DAQIQA`.
 
 ---
 
