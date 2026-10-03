@@ -118,7 +118,7 @@ EGA_PAUZA_DAQIQA = int(os.getenv("EGA_PAUZA_DAQIQA", "5"))
 KEEPALIVE_ORALIQ = 10 * 60
 FON_TEKSHIRUV_ORALIQ = 5 * 60
 # Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
-SUHBAT_VERSIYASI = "umatic-savdo-2"
+SUHBAT_VERSIYASI = "umatic-savdo-3"
 TABIIY_MIN, TABIIY_MAX = 1.5, 3.5                                 # javob tezligi: juda tez ham emas (soniya)
 LIMIT_KUTISH = 15                                                # hamma modellar limitda bo'lsa, kutish (soniya)
 
@@ -1690,8 +1690,6 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         # Pauza menejerning OXIRGI xabaridan EGA_PAUZA_DAQIQA o'tgach o'zi tugaydi.
         if message.from_user is None or message.from_user.id == ega_id:
             await asyncio.to_thread(db.record_owner_activity, chat_id)
-            # Menejer suhbatga qo'shilgan - bu chatga keyin UMATIC taqdimoti tashlanmaydi
-            await asyncio.to_thread(db.taqdimot_belgilash, chat_id)
             # Menejer yozganlari bot xotirasiga - pauzadan keyin bot suhbatni davom ettira olsin
             if message.text and not message.text.startswith("/"):
                 await asyncio.to_thread(db.add_message, chat_id, "assistant", f"(Menejer yozdi) {message.text.strip()}")
@@ -1734,10 +1732,13 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         await asyncio.to_thread(db.save_chat_meta, chat_id, message.from_user.id, bcid, til)
         tarix.append({"role": "user", "content": xabar_matni})
 
-        # Suhbatning birinchi xabari: AI dan oldin kompaniya va mahsulotlar taqdimoti yuboriladi
+        # Bot bu chatda birinchi marta javob beryapti: AI dan oldin O'ZINI TANISHTIRADI.
+        # Menejer (Zuxriddin) shu odam bilan oxirgi 24 soatda yozishgan bo'lsa - qisqa tanishtiruv
+        # (tirik suhbat o'rtasiga uzun e'lon tushmasligi uchun), aks holda to'liq taqdimot.
         taqdimot_hozir = False
         if not await asyncio.to_thread(db.taqdimot_yuborilganmi, chat_id):
-            tanishtiruv = tanishtiruv_matni(til)
+            menejer_yozishgan = await asyncio.to_thread(db.is_owner_recently_active, chat_id, 24 * 60)
+            tanishtiruv = tmatn("qisqa_tanishtiruv", til) if menejer_yozishgan else tanishtiruv_matni(til)
             async with YozmoqdaHolati(chat_id, bcid):
                 await asyncio.sleep(tabiiy_kutish(tanishtiruv, boshlangan))
             if await mijozga_yuborish(chat_id, bcid, tanishtiruv) is None:

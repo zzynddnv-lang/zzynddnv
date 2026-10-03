@@ -974,8 +974,26 @@ class MenejerPauzaTest(unittest.TestCase):
         self._vaqtni_orqaga_surish(62, 6)
         self._xabar(62, "15 kVt kerak", 621)
         javoblar = self._bot_javoblari(62)
-        self.assertEqual(len(javoblar), 1)            # 6 daqiqa - bot qaytdi
-        self.assertNotIn("UMATIC —", javoblar[0])      # menejer suhbatiga taqdimot tashlanmaydi
+        self.assertEqual(len(javoblar), 2)            # 6 daqiqa - bot qaytdi: qisqa tanishtiruv + javob
+        self.assertIn("AI savdo yordamchisiman", javoblar[0])  # o'zini tanishtiradi
+        self.assertNotIn("kran-metallurgiya", javoblar[0])     # lekin tirik suhbatga uzun taqdimot emas
+
+    def test_menejer_bilan_yozishgan_odamga_ham_ozini_tanishtiradi(self):
+        """Foydalanuvchi holati: testchilar Zuxriddin bilan doim yozishadi - bot baribir o'zini tanishtirishi kerak."""
+        self._xabar(65, "Salom, qalaysan?", self.EGA)
+        self._vaqtni_orqaga_surish(65, 60)
+        self._xabar(65, "Assalomu alaykum", 651)
+        javoblar = self._bot_javoblari(65)
+        self.assertEqual(len(javoblar), 1)
+        self.assertIn("AI savdo yordamchisiman", javoblar[0])
+        self._xabar(65, "dvigatel kerak", 651)
+        self.assertEqual(sum("AI savdo yordamchisiman" in j for j in self._bot_javoblari(65)), 1)  # bir marta
+
+    def test_menejer_ancha_oldin_yozgan_bolsa_toliq_taqdimot(self):
+        self._xabar(66, "eski xabar", self.EGA)
+        self._vaqtni_orqaga_surish(66, 2 * 24 * 60)  # 2 kun oldin
+        self._xabar(66, "Assalomu alaykum", 661)
+        self.assertIn("kran-metallurgiya", self._bot_javoblari(66)[0])
 
     def test_menejer_yozganlari_bot_xotirasida(self):
         self._xabar(63, "Bu dvigatel ertaga keladi", self.EGA)
