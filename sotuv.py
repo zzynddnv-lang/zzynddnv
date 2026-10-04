@@ -810,26 +810,28 @@ def katalogni_tayyorlash(mahsulotlar: list[dict]) -> dict[str, list[dict]]:
 def _katalog_bolimlari_tanlash(past: str) -> list[str]:
     tanlangan = [k for k, naqsh in _TUR_KALITLARI.items() if re.search(naqsh, past)]
     for naqsh, guruh in _GURUH_KALITLARI:
-        if re.search(naqsh, past):
-            tanlangan += [g for g in guruh if g not in tanlangan]
+        # "dvigatel"/"nasos" umumiy so'zi butun guruhni qo'shadi - faqat shu guruhdan aniq tur aytilmagan bo'lsa
+        # ("kran dvigateli" -> faqat kran dvigatellari, "quduq nasosi" -> faqat quduq nasoslari)
+        if re.search(naqsh, past) and not any(g in tanlangan for g in guruh):
+            tanlangan += list(guruh)
     return tanlangan
 
 
-def katalog_tanlash(katalog: dict[str, list[dict]], mijoz_matni: str) -> str:
+def _tanlangan_bolimlar(katalog: dict[str, list[dict]], mijoz_matni: str) -> list[tuple[str, list[dict]]]:
     """
-    Mijoz yozganlariga qarab katalogdan kerakli qismni tanlaydi:
+    Mijoz yozganlariga qarab katalogdan kerakli bo'limlar va mahsulotlar:
     - tur/yo'nalish aytilgan bo'lsa (kran, quduq nasosi, emal sim...) - shu bo'limlar;
     - quvvat (kVt) aytilgan bo'lsa - shu quvvatga yaqin (0,5x-2x) modellar;
-    - hech narsa aytilmagan bo'lsa - katalog yuborilmaydi (umumiy ma'lumot bilimlarda bor).
+    - hech narsa aytilmagan bo'lsa - bo'sh.
     """
     if not katalog:
-        return ""
+        return []
     past = (mijoz_matni or "").lower()
     # "kVt", "квт", "kW" - quvvat; "кВ"/"kV" (kilovolt) - quvvat emas
     kvtlar = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:kvt|квт|kwt|kw)\b", past)]
     bolimlar = [b for b in _katalog_bolimlari_tanlash(past) if b in katalog]
     if not bolimlar and not kvtlar:
-        return ""
+        return []
     if not bolimlar:
         bolimlar = [b for b in DVIGATEL_BOLIMLARI + NASOS_BOLIMLARI if b in katalog]
 
@@ -843,10 +845,39 @@ def katalog_tanlash(katalog: dict[str, list[dict]], mijoz_matni: str) -> str:
             mahsulotlar = mos
         mahsulotlar = mahsulotlar[: max(0, MAX_KATALOG_QATOR - jami)]
         if mahsulotlar:
-            natija.append("## " + BOLIM_SARLAVHALARI[b])
-            natija += ["- " + m["_qator"] for m in mahsulotlar]
+            natija.append((b, mahsulotlar))
             jami += len(mahsulotlar)
-    return "\n".join(natija)
+    return natija
+
+
+def katalog_tanlash(katalog: dict[str, list[dict]], mijoz_matni: str) -> str:
+    """Mijozga mos katalog qismi - AI ko'rsatmasi uchun matn ko'rinishida (bo'sh bo'lsa - "")."""
+    qatorlar = []
+    for b, mahsulotlar in _tanlangan_bolimlar(katalog, mijoz_matni):
+        qatorlar.append("## " + BOLIM_SARLAVHALARI[b])
+        qatorlar += ["- " + m["_qator"] for m in mahsulotlar]
+    return "\n".join(qatorlar)
+
+
+def rasm_uchun_mahsulotlar(katalog: dict[str, list[dict]], joriy: str, suhbat: str, ai_mahsulotlar: str = "",
+                           limit: int = 3) -> list[dict]:
+    """
+    Mijoz rasm so'raganda nimaning rasmini yuborish kerak - HAR DOIM nimadir topiladi:
+    1) joriy xabardagi aniq model; 2) suhbatda tilga olingan aniq model; 3) AI aniqlagan pozitsiyalar;
+    4) suhbatdagi tur/quvvatga mos katalog modellari; 5) har yo'nalishdan bittadan namuna.
+    """
+    for matn in (joriy, suhbat, ai_mahsulotlar):
+        topildi = topilgan_modellar(katalog, matn, limit=limit)
+        if topildi:
+            return topildi
+    for matn in (joriy, ai_mahsulotlar, suhbat):
+        bolimlar = _tanlangan_bolimlar(katalog, matn)
+        if bolimlar:
+            # Har bo'limdan birinchisi, keyin qolganlari (turli turlar ko'rinsin)
+            natija = [m for _, ms in bolimlar for m in ms[:1]]
+            natija += [m for _, ms in bolimlar for m in ms[1:]]
+            return natija[:limit]
+    return [katalog[b][len(katalog[b]) // 2] for b in ("AIR", "ECV", "PROVOD") if katalog.get(b)][:limit]
 
 
 # ---------- Model nomlari: kirill (katalogdagidek) <-> lotin ----------
@@ -952,7 +983,8 @@ def tafsilot_matni(m: dict) -> str:
 
 
 _RASM_SOROV = re.compile(
-    r"rasm|surat|\bfoto|\bphoto|фото|расм|сурат|картин|изображ|ko['‘’`]?rinish|кўриниш|как\s+выгляд|qanaqa\s+ko['‘’`]?rin",
+    r"rasm|rasim|surat|\bfoto|\bphoto|\bpic|\bimg|фото|фотк|расм|расим|сурат|картин|изображ|рисун|снимок|"
+    r"ko['‘’`]?rinish|кўриниш|кориниш|как\s+выгляд|qanaqa\s+ko['‘’`]?rin|ko['‘’`]?rsat|кўрсат|покаж",
     re.IGNORECASE,
 )
 

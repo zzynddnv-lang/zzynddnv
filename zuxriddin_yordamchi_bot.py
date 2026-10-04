@@ -506,25 +506,31 @@ async def _rasmni_yuklash(url: str) -> bytes | None:
 
 
 async def rasm_yuborish(chat_id: int, bcid: str | None, mahsulot: dict, til: str) -> bool:
-    """Katalogdagi mahsulot rasmini qisqa texnik ma'lumot va sayt havolasi bilan yuboradi."""
-    if not mahsulot.get("rasm"):
-        return False
-    jpeg = await _rasmni_yuklash(mahsulot["rasm"])
-    if not jpeg:
-        return False
-    izoh = f"{mahsulot['model']}\n{mahsulot.get('_qator', '').split(' | ', 1)[-1]}\n{mahsulot['url']}"
-    try:
-        await bot.send_photo(
-            chat_id=chat_id,
-            photo=types.BufferedInputFile(jpeg, filename=f"{sotuv.model_kaliti(mahsulot['model'])}.jpg"),
-            caption=qisqartir(izoh, 1000),
-            business_connection_id=bcid or None,
-        )
-        await asyncio.to_thread(db.add_message, chat_id, "assistant", f"[Rasm yuborildi: {mahsulot['model']}]")
+    """
+    Katalogdagi mahsulot rasmini qisqa texnik ma'lumot va sayt havolasi bilan yuboradi.
+    Bir necha usul sinaladi, mijoz hech qachon javobsiz qolmaydi:
+    1) rasm yuklab olinib JPEG qilib; 2) to'g'ridan-to'g'ri havola orqali (Telegram o'zi yuklaydi);
+    3) bo'lmasa - mahsulot sahifasi havolasi matn ko'rinishida.
+    """
+    izoh = qisqartir(f"{mahsulot['model']}\n{mahsulot.get('_qator', '').split(' | ', 1)[-1]}\n{mahsulot['url']}", 1000)
+    usullar = []
+    if mahsulot.get("rasm"):
+        jpeg = await _rasmni_yuklash(mahsulot["rasm"])
+        if jpeg:
+            usullar.append(types.BufferedInputFile(jpeg, filename=f"{sotuv.model_kaliti(mahsulot['model'])}.jpg"))
+        usullar.append(mahsulot["rasm"])
+    for photo in usullar:
+        try:
+            await bot.send_photo(chat_id=chat_id, photo=photo, caption=izoh, business_connection_id=bcid or None)
+            await asyncio.to_thread(db.add_message, chat_id, "assistant", f"[Rasm yuborildi: {mahsulot['model']}]")
+            return True
+        except TelegramAPIError as e:
+            logging.warning("Rasmni yuborib bo'lmadi (chat %s, %s): %s", chat_id, type(photo).__name__, e)
+    # Oxirgi chora: rasm sahifasi havolasi (sahifada rasm bor)
+    if await mijozga_yuborish(chat_id, bcid, f"🖼 {izoh}") is None:
+        await asyncio.to_thread(db.add_message, chat_id, "assistant", f"[Rasm havolasi yuborildi: {mahsulot['model']}]")
         return True
-    except TelegramAPIError as e:
-        logging.warning("Rasmni yuborib bo'lmadi (chat %s): %s", chat_id, e)
-        return False
+    return False
 
 
 async def javob_yubor(message: types.Message, matn: str, is_business: bool = True):
@@ -1757,15 +1763,15 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         boshlangan = asyncio.get_running_loop().time()
 
         # Mijoz rasm so'radimi? Model shu xabarda yoki botning oxirgi javobida bo'lsa - katalog rasmi yuboriladi
+        rasm_soraldi = sotuv.rasm_soraldimi(xabar_matni)
         rasm_modellari = []
-        if sotuv.rasm_soraldimi(xabar_matni):
-            oldingi_bot = next((m["content"] for m in reversed(tarix[:-1]) if m.get("role") == "assistant"), "")
-            rasm_modellari = (sotuv.topilgan_modellar(KATALOG, xabar_matni)
-                              or sotuv.topilgan_modellar(KATALOG, oldingi_bot))
+        if rasm_soraldi:
+            suhbat_matni = " ".join(m["content"] for m in tarix[-6:-1])
+            rasm_modellari = sotuv.rasm_uchun_mahsulotlar(KATALOG, xabar_matni, suhbat_matni)
             holat["qoshimcha"] = [
-                f"Javobingdan keyin mijozga quyidagi modellar rasmi avtomatik yuboriladi: {', '.join(m['model'] for m in rasm_modellari)}."
-                if rasm_modellari else
-                "Mijoz rasm so'radi, lekin qaysi model ekani aniq emas - qaysi modelning rasmini ko'rsatishni so'ra."
+                f"Javobingdan keyin mijozga quyidagi mahsulotlar RASMI avtomatik yuboriladi: "
+                f"{', '.join(m['model'] for m in rasm_modellari)}. Qisqa ayt (masalan: mana rasmi), "
+                "\"rasm yo'q\" yoki \"rasm yubora olmayman\" DEMA."
             ]
 
         try:

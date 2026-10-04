@@ -1107,20 +1107,52 @@ class TestchiXatolariTest(unittest.TestCase):
         self.assertIn("Номинальный ток", tafsilot)
         self.assertIn("umatic.uz", tafsilot)
 
-    def test_rasm_soralganda_yuboriladi(self):
+    def _rasm_bilan(self, matn, yuklash=b"\xff\xd8jpeg"):
+        """Rasm saytdan yuklanishini soxtalashtiradi (testlar internetga chiqmaydi)."""
         async def soxta_rasm(url):
-            return b"\xff\xd8jpeg"
+            return yuklash
 
         with mock.patch.object(b, "_rasmni_yuklash", soxta_rasm):
-            self._yoz("АИР132М4У1 rasmini yuboring")
+            self._yoz(matn)
+
+    def test_rasm_soralganda_yuboriladi(self):
+        self._rasm_bilan("АИР132М4У1 rasmini yuboring")
         self.assertEqual(len(self.rasmlar), 1)
         self.assertIn("АИР132М4У1", self.rasmlar[0][1])
-        self.assertIn("rasmi avtomatik yuboriladi", " ".join(self.oxirgi_holat["qoshimcha"]))
+        holat = " ".join(self.oxirgi_holat["qoshimcha"])
+        self.assertIn("RASMI avtomatik yuboriladi", holat)
+        self.assertIn("DEMA", holat)  # AI "rasm yo'q" demasligi kerak
 
-    def test_model_aytilmasa_rasm_uchun_soraydi(self):
-        self._yoz("rasm bormi?")
-        self.assertEqual(self.rasmlar, [])
-        self.assertIn("qaysi model", " ".join(self.oxirgi_holat["qoshimcha"]))
+    def test_model_aytilmasa_ham_rasm_yuboriladi(self):
+        """Foydalanuvchi talabi: rasm so'ralsa bot rasm yuborishi SHART."""
+        self._rasm_bilan("rasm bormi?")
+        self.assertEqual(len(self.rasmlar), 3)  # har yo'nalishdan namuna
+
+    def test_tur_boyicha_rasm(self):
+        self._rasm_bilan("kran dvigatelining rasmini yuboring")
+        self.assertTrue(self.rasmlar)
+        self.assertTrue(all("МТН" in r[1] or "МТКН" in r[1] for r in self.rasmlar))
+
+    def test_oldingi_javobdagi_model_rasmi(self):
+        self.ai_javobi = "Katalogimizda ЭЦВ 8-25-100 bor: 25 m³/soat, napor 100 m."
+        self._rasm_bilan("quduq nasosi kerak 25 kub")
+        self._rasm_bilan("rasmini yuboring")
+        self.assertIn("ЭЦВ 8-25-100", self.rasmlar[-1][1])
+
+    def test_rasm_yuklanmasa_ham_mijoz_javobsiz_qolmaydi(self):
+        async def buzuq_photo(chat_id, photo, caption=None, **kw):
+            raise b.TelegramAPIError(method=None, message="wrong file")
+
+        b.bot.send_photo = buzuq_photo
+        self._rasm_bilan("АИР132М4У1 rasmi", yuklash=None)
+        oxirgi = [t for c, t in self.xabarlar if c == 70][-1]
+        self.assertIn("umatic.uz", oxirgi)  # oxirgi chora: sahifa havolasi
+        self.assertIn("АИР132М4У1", oxirgi)
+
+    def test_rasm_sorovi_sozlari(self):
+        for x in ("rasmini yuboring", "suratini tashlang", "фото есть?", "расмини юборинг", "покажите", "ko'rsating", "rasim bormi"):
+            self.assertTrue(sotuv.rasm_soraldimi(x), x)
+        self.assertFalse(sotuv.rasm_soraldimi("11 kVt dvigatel kerak"))
 
     # --- #6: taklif omborda tekshirilgandan keyin ---
     def test_standart_rejim_mavjudlik(self):
