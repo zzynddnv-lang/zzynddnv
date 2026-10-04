@@ -760,6 +760,29 @@ def _nomzod_bolaoladimi(natija: dict, til: str, taklif_bor: bool) -> bool:
 #  CRM: SQLite + CSV + GOOGLE SHEETS
 # =====================================================================
 
+async def sheets_holati() -> str:
+    """
+    Google Sheets webhook HAQIQATAN ishlayaptimi (jadvalga yozmasdan, GET bilan tekshiriladi).
+    Apps Script dagi doGet {"ok": true} qaytaradi; 403 - deploy "Anyone" ruxsatisiz yoki o'chirilgan.
+    """
+    url = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
+    if not url:
+        return "ulanmagan (GOOGLE_SHEET_WEBHOOK_URL yo'q)"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                matn = await resp.text()
+                if resp.status == 200 and '"ok":true' in matn.replace(" ", ""):
+                    return "ishlayapti ✅"
+                if resp.status == 200:
+                    return "havola ochiladi, lekin eski skript ⚠️ (google_apps_script.gs ni qayta joylang)"
+                if resp.status in (401, 403):
+                    return f"❌ {resp.status} ruxsat yo'q — Apps Script'ni «Who has access: Anyone» bilan qayta deploy qiling"
+                return f"❌ xato {resp.status}"
+    except Exception as e:
+        return f"❌ ulanib bo'lmadi: {str(e)[:80]}"
+
+
 async def google_sheetsga_yozish(karta: dict) -> bool | None:
     """
     Mijoz kartochkasini Google Sheets jadvaliga webhook (Apps Script) orqali yozadi.
@@ -1537,7 +1560,7 @@ async def export_komandasi(message: types.Message):
 @dp.message(Command("stats"), EgaFilter())
 async def stats_komandasi(message: types.Message):
     stats = db.get_stats()
-    sheets = "ulangan ✅" if os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip() else "ulanmagan"
+    sheets = await sheets_holati()
     await message.answer(
         f"📊 <b>{h(KOMPANIYA_NOMI)} savdo boti statistikasi</b>\n\n"
         f"👥 Mijozlar: <b>{stats['total_leads']}</b>\n"

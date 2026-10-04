@@ -47,6 +47,19 @@ function varaqniOlish_() {
   return sheet;
 }
 
+/**
+ * Holat tekshiruvi: havolani brauzerda ochsangiz yoki bot /stats da tekshirsa -
+ * {"ok": true, ...} qaytadi. Jadvalga hech narsa yozilmaydi.
+ */
+function doGet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ContentService.createTextOutput(JSON.stringify({
+    ok: true,
+    jadval: ss ? ss.getName() : "",
+    varaq: VARAQ_NOMI,
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
