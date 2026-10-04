@@ -16,6 +16,14 @@
 
 const VARAQ_NOMI = "CRM";
 
+// Skript jadvalga bog'lanmagan (alohida) bo'lsa - jadval ID si shu yerga yoziladi.
+// Jadval ichidan (Kengaytmalar -> Apps Script) ochilgan bo'lsa bo'sh qoldirsa ham bo'ladi.
+const JADVAL_ID = "1CHBiw7jBSY6_Jqt3ly9nyp6z4BoQIivk2fdRZEi8d-4";
+
+function jadvalniOlish_() {
+  return SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(JADVAL_ID);
+}
+
 const USTUNLAR = [
   ["sana", "Sana"],
   ["ism", "Mijoz"],
@@ -34,7 +42,7 @@ const USTUNLAR = [
 ];
 
 function varaqniOlish_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = jadvalniOlish_();
   let sheet = ss.getSheetByName(VARAQ_NOMI);
   if (!sheet) {
     sheet = ss.insertSheet(VARAQ_NOMI);
@@ -52,7 +60,7 @@ function varaqniOlish_() {
  * {"ok": true, ...} qaytadi. Jadvalga hech narsa yozilmaydi.
  */
 function doGet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = jadvalniOlish_();
   return ContentService.createTextOutput(JSON.stringify({
     ok: true,
     jadval: ss ? ss.getName() : "",
