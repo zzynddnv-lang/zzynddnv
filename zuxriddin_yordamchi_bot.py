@@ -1940,7 +1940,21 @@ async def main():
     if keepalive_url:
         vazifalar.append(asyncio.create_task(keepalive_loop(keepalive_url)))
 
-    logging.info("%s savdo boti ishga tushdi! To'xtatish uchun: Ctrl + C", KOMPANIYA_NOMI)
+    # Bot profili tavsifi + serverdagi kod versiyasi (Render'ga kirmasdan Telegram API orqali tekshirish mumkin)
+    try:
+        await bot.set_my_short_description(
+            short_description=f"{KOMPANIYA_NOMI} AI savdo yordamchisi: elektr dvigatellar, nasoslar, izolyatsiya materiallari"
+        )
+        await bot.set_my_description(
+            description=(
+                f"{KOMPANIYA_NOMI} AI savdo yordamchisi. Elektr dvigatellar, nasos agregatlari va elektroizolyatsiya "
+                f"materiallarini tanlashda yordam beradi, texnik ma'lumot va rasm yuboradi.\n\nversiya: {VERSIYA}"
+            )
+        )
+    except Exception as e:
+        logging.warning("Bot tavsifini yangilab bo'lmadi: %s", e)
+
+    logging.info("%s savdo boti ishga tushdi (versiya %s)! To'xtatish uchun: Ctrl + C", KOMPANIYA_NOMI, VERSIYA)
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
