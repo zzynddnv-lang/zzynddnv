@@ -1187,6 +1187,91 @@ class TestchiXatolariTest(unittest.TestCase):
         self.assertTrue(pdf.startswith(b"%PDF"))
 
 
+class SessiyaTest(unittest.TestCase):
+    """1 soat jimlikdan keyin suhbat qaytadan: bot o'zini tanishtiradi, eski suhbat va takliflar aralashmaydi."""
+
+    def setUp(self):
+        db.init_db()
+        with db.get_db() as conn:
+            for t in ("messages", "chats", "leads", "sorovlar"):
+                conn.execute(f"DELETE FROM {t}")
+        self.yuborilgan = []
+
+        async def send_message(chat_id, text, **kw):
+            self.yuborilgan.append(text)
+            return SimpleNamespace(message_id=1)
+
+        async def noop(*a, **kw):
+            return None
+
+        b.bot = SimpleNamespace(send_message=send_message, send_chat_action=noop, id=999)
+        self.ai_tarixlari, self.ai_holatlari = [], []
+
+        async def soxta_ai(tarix, holat, til="uz_latn"):
+            self.ai_tarixlari.append([m["content"] for m in tarix])
+            self.ai_holatlari.append(holat)
+            n = sotuv.ai_natijasini_ajratish(ai_json(javob="Qanday quvvat kerak?"))
+            n["_birinchi"], n["til"] = False, til
+            return n
+
+        p = mock.patch.object(b, "ai_javob", soxta_ai)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _yoz(self, matn, chat_id=90):
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=chat_id), text=matn, business_connection_id=None, sender_business_bot=None,
+            from_user=SimpleNamespace(id=chat_id, username=None, full_name="Test"),
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=False))
+
+    def _orqaga(self, daqiqa, chat_id=90):
+        """Chatdagi barcha xabar va so'rovlarni 'daqiqa' oldinga suradi (vaqt o'tganini taqlid qiladi)."""
+        from datetime import datetime, timedelta
+        with db.get_db() as conn:
+            for jadval in ("messages", "sorovlar"):
+                for r in conn.execute(f"SELECT id, created_at FROM {jadval} WHERE chat_id = ?", (chat_id,)).fetchall():
+                    eski = datetime.strptime(r["created_at"], "%Y-%m-%d %H:%M:%S") - timedelta(minutes=daqiqa)
+                    conn.execute(f"UPDATE {jadval} SET created_at = ? WHERE id = ?", (eski.strftime("%Y-%m-%d %H:%M:%S"), r["id"]))
+
+    def _taqdimotlar(self):
+        return sum("AI savdo yordamchisiman" in x for x in self.yuborilgan)
+
+    def test_standart_1_soat(self):
+        self.assertEqual(b.SESSIYA_DAQIQA, 60)
+
+    def test_1_soatdan_keyin_qaytadan_tanishtiradi(self):
+        self._yoz("Assalomu alaykum")
+        self._yoz("kran uchun dvigatel kerak")
+        self.assertEqual(self._taqdimotlar(), 1)
+        self._orqaga(61)
+        self._yoz("salom")
+        self.assertEqual(self._taqdimotlar(), 2)        # yana o'zini tanishtirdi
+        self._yoz("nasos kerak")
+        eski_bormi = any("kran uchun dvigatel kerak" in m for m in self.ai_tarixlari[-1])
+        self.assertFalse(eski_bormi)                     # eski suhbat AI ga berilmadi
+
+    def test_1_soat_ichida_davom_etadi(self):
+        self._yoz("Assalomu alaykum")
+        self._yoz("kran uchun dvigatel kerak")
+        self._orqaga(59)
+        self._yoz("yana savol bor")
+        self.assertEqual(self._taqdimotlar(), 1)         # qayta tanishtirmaydi
+        self.assertTrue(any("kran uchun dvigatel kerak" in m for m in self.ai_tarixlari[-1]))  # suhbat davom etadi
+
+    def test_eski_taklif_yangi_suhbatga_aralashmaydi(self):
+        self._yoz("Assalomu alaykum")
+        sid = db.create_sorov(90, 90, None, "uz_latn", json.dumps(POZ), sotuv.mahsulotlar_kaliti(POZ), "")
+        db.sorov_holatini_ozgartirish(sid, ("kutilmoqda",), "yuborildi")
+        self.assertIsNotNone(db.get_oxirgi_taklif(90))   # shu suhbatda ko'rinadi
+        self._orqaga(61)
+        self._yoz("salom, dvigatel kerak")
+        self.assertIsNone(self.ai_holatlari[-1]["taklif"])  # yangi suhbatda eski taklif AI ga berilmadi
+        self.assertIsNone(db.get_oxirgi_taklif(90))
+        self.assertIsNotNone(db.get_sorov(sid))           # lekin bazada (CRM) saqlanib qoldi
+
+
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):
         """AI ikki marta narx o'ylab topsa - mijozga xavfsiz matn ketadi."""

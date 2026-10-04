@@ -77,6 +77,7 @@ def init_db():
             ("menejer_chaqirilgan", "TEXT"),
             ("taqdimot_at", "TEXT"),
             ("til_tanlov", "TEXT"),
+            ("sessiya_boshi", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE chats ADD COLUMN {ustun_nomi} {ustun_turi};")
@@ -231,8 +232,9 @@ def clear_chat_history(chat_id: int):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
         cursor.execute("""
-            UPDATE chats SET is_completed = 0, owner_last_active = NULL, taqdimot_at = NULL, updated_at = ? WHERE chat_id = ?
-        """, (vaqt, chat_id))
+            UPDATE chats SET is_completed = 0, owner_last_active = NULL, taqdimot_at = NULL,
+                             sessiya_boshi = ?, updated_at = ? WHERE chat_id = ?
+        """, (vaqt, vaqt, chat_id))
 
 
 def get_last_message_time(chat_id: int) -> Optional[datetime]:
@@ -502,14 +504,19 @@ def get_sorov(sorov_id: int) -> Optional[sqlite3.Row]:
         return cursor.fetchone()
 
 
+# Chatning joriy sessiyasi boshlangan vaqt (yo'q bo'lsa - hamma vaqt)
+_SESSIYA_BOSHI = "COALESCE((SELECT sessiya_boshi FROM chats WHERE chats.chat_id = ?), '')"
+
+
 def get_faol_sorov(chat_id: int) -> Optional[sqlite3.Row]:
     """Chat bo'yicha ombor hali javob bermagan (faol) so'rov."""
     belgilar = ",".join("?" for _ in FAOL_SOROV_HOLATLARI)
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            f"SELECT {_SOROV_USTUNLARI} FROM sorovlar WHERE chat_id = ? AND holat IN ({belgilar}) ORDER BY id DESC LIMIT 1",
-            (chat_id, *FAOL_SOROV_HOLATLARI),
+            f"SELECT {_SOROV_USTUNLARI} FROM sorovlar WHERE chat_id = ? AND holat IN ({belgilar}) "
+            f"AND created_at >= {_SESSIYA_BOSHI} ORDER BY id DESC LIMIT 1",
+            (chat_id, *FAOL_SOROV_HOLATLARI, chat_id),
         )
         return cursor.fetchone()
 
@@ -519,8 +526,9 @@ def get_oxirgi_taklif(chat_id: int) -> Optional[sqlite3.Row]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            f"SELECT {_SOROV_USTUNLARI} FROM sorovlar WHERE chat_id = ? AND holat = 'yuborildi' ORDER BY id DESC LIMIT 1",
-            (chat_id,),
+            f"SELECT {_SOROV_USTUNLARI} FROM sorovlar WHERE chat_id = ? AND holat = 'yuborildi' "
+            f"AND created_at >= {_SESSIYA_BOSHI} ORDER BY id DESC LIMIT 1",
+            (chat_id, chat_id),
         )
         return cursor.fetchone()
 
@@ -631,7 +639,10 @@ def suhbat_versiyasini_yangilash(versiya: str) -> bool:
         if row and row["qiymat"] == versiya:
             return False
         conn.execute("DELETE FROM messages")
-        conn.execute("UPDATE chats SET taqdimot_at = NULL, owner_last_active = NULL, til_tanlov = NULL")
+        conn.execute(
+            "UPDATE chats SET taqdimot_at = NULL, owner_last_active = NULL, til_tanlov = NULL, sessiya_boshi = ?",
+            (_hozir(),),
+        )
         conn.execute(
             "INSERT OR REPLACE INTO meta (kalit, qiymat) VALUES ('suhbat_versiyasi', ?)", (versiya,)
         )

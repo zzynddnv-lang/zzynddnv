@@ -110,7 +110,9 @@ LEADLAR_FAYLI = os.getenv("CSV_PATH") or os.path.join(BASE_DIR, "leadlar.csv")
 BILIMLAR_PAPKASI = os.getenv("BILIMLAR_PAPKASI") or os.path.join(BASE_DIR, "bilimlar")
 
 MAX_TARIX = 10                                                   # AI ga beriladigan oxirgi xabarlar soni
-SESSIYA_SOAT = int(os.getenv("SESSIYA_SOAT", "72"))              # shundan keyin suhbat xotirasi yangilanadi
+# Suhbatda shuncha daqiqa hech kim yozmasa - suhbat tugagan: keyingi xabarda bot qaytadan o'zini tanishtiradi
+# va boshidan boshlaydi (eski suhbat tarixi va eski takliflar AI ga ko'rsatilmaydi; CRM saqlanadi)
+SESSIYA_DAQIQA = int(os.getenv("SESSIYA_DAQIQA", "60"))
 SKLAD_ESLATMA_DAQIQA = int(os.getenv("SKLAD_ESLATMA_DAQIQA", "30"))  # ombor javob bermasa eslatish
 KUZATISH_SOAT = int(os.getenv("KUZATISH_SOAT", "6"))             # taklifga javob bo'lmasa menejerga eslatish
 # Menejer chatga o'zi yozsa, bot FAQAT o'sha chatda shuncha daqiqa jim turadi (oxirgi xabaridan hisoblanadi)
@@ -1710,7 +1712,8 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
     async with chat_locks[chat_id]:
         oxirgi_vaqt = await asyncio.to_thread(db.get_last_message_time, chat_id)
-        if oxirgi_vaqt and (datetime.now() - oxirgi_vaqt).total_seconds() > SESSIYA_SOAT * 3600:
+        if oxirgi_vaqt and (datetime.now() - oxirgi_vaqt).total_seconds() > SESSIYA_DAQIQA * 60:
+            logging.info("Chat %s: %s daqiqadan ko'p jimlik - yangi suhbat boshlanadi.", chat_id, SESSIYA_DAQIQA)
             await asyncio.to_thread(db.clear_chat_history, chat_id)
 
         tarix = await asyncio.to_thread(db.get_chat_history, chat_id, MAX_TARIX)

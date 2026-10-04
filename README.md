@@ -2,7 +2,7 @@
 
 Bot Telegram'da (Telegram Business akkaunt yoki botning o'zi orqali) yozgan mijozlar bilan **savdo menejeri** kabi ishlaydi. UMATIC ning 3 yo'nalishi: **elektr dvigatellar, nasos agregatlari, elektroizolyatsiya materiallari** (umatic.uz dagi 104 ta mahsulot).
 
-- birinchi xabarda o'zini tanishtiradi va kompaniya/mahsulotlar taqdimotini yuboradi;
+- birinchi xabarda o'zini tanishtiradi va kompaniya/mahsulotlar taqdimotini yuboradi; suhbatda **1 soat** jimlikdan keyin yozilsa — qaytadan tanishtirib, boshidan boshlaydi (`SESSIYA_DAQIQA`);
 - mahsulotlar haqida ma'lumot beradi, so'ralsa **texnik ma'lumot va rasmini** yuboradi (saytdan);
 - model nomlarini saytdagidek **kirill** yozuvida yozadi (АИР132М4У1, ЭЦВ 8-25-100);
 - mijoz tilini aniqlaydi va "rus tilida gapiring" kabi so'rovda tilni almashtiradi;
