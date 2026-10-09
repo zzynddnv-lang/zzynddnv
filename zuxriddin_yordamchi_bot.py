@@ -2175,12 +2175,20 @@ async def suhbat_yakunlarini_yuborish():
             mijoz_id = r["mijoz_id"] or r["chat_id"]
             kartochka = (f"💬 <b>SUHBAT YAKUNLANDI</b>\n\n👤 <b>Mijoz:</b> {mijoz_havolasi(mijoz_id, 'Mijoz')}"
                          "\n📊 Ehtiyoj hali aniqlanmagan")
+        # Ega biznes ulanishdan aniqlanadi - bot qayta ishga tushib, egalar ro'yxati bo'sh bo'lsa ham yetib boradi
+        ega_id = None
+        if r["business_connection_id"]:
+            try:
+                ega_id = await ega_id_ol(r["business_connection_id"])
+            except Exception as e:
+                logging.warning("Biznes ulanish egasini aniqlab bo'lmadi (chat %s): %s", r["chat_id"], e)
         await egalarga_yuborish(
             kartochka
             + f"\n\n🗨 Suhbatda {r['mijoz_xabarlari']} ta mijoz xabari"
             + (f"\n💬 <b>Oxirgi xabari:</b> {h(qisqartir(r['oxirgi_mijoz_xabari'] or '', 300))}"
                if r["oxirgi_mijoz_xabari"] else "")
-            + f"\n🆔 Chat: <code>{r['chat_id']}</code>"
+            + f"\n🆔 Chat: <code>{r['chat_id']}</code>",
+            ega_id,
         )
 
 
