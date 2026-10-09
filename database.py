@@ -82,6 +82,7 @@ def init_db():
             ("sessiya_soni", "INTEGER DEFAULT 1"),
             ("mijoz_ismi", "TEXT"),
             ("oldingi_suhbat", "TEXT"),
+            ("yakun_xabari_at", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE chats ADD COLUMN {ustun_nomi} {ustun_turi};")
@@ -491,6 +492,35 @@ def mijozni_tiklash(chat_id: int, mijoz_id: int, sessiya_soni: int, mijoz_ismi: 
         upsert_lead(chat_id, **toldirilgan)
 
 
+def get_yakunlangan_suhbatlar(daqiqa: int) -> List[sqlite3.Row]:
+    """
+    Mijoz bilan yozishma tugagan chatlar: oxirgi xabardan beri 'daqiqa' o'tgan, suhbatda mijoz yozgan
+    va shu yozishma haqida egaga hali xabar berilmagan (mijoz qayta yozsa - keyin yana xabar beriladi).
+    """
+    chegara = (datetime.now() - timedelta(minutes=daqiqa)).strftime("%Y-%m-%d %H:%M:%S")
+    # Eski (bir kundan oldingi) yozishmalar uchun xabar yuborilmaydi - bot yangilanganda "to'lqin" bo'lmasin
+    eng_eski = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT c.chat_id, c.mijoz_id, c.owner_last_active, m.oxirgi, m.mijoz_xabarlari, m.jami,
+                   (SELECT content FROM messages WHERE chat_id = c.chat_id AND role = 'user'
+                    ORDER BY id DESC LIMIT 1) AS oxirgi_mijoz_xabari
+            FROM chats c
+            JOIN (SELECT chat_id, MAX(created_at) AS oxirgi, COUNT(*) AS jami,
+                         SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS mijoz_xabarlari
+                  FROM messages GROUP BY chat_id) m ON m.chat_id = c.chat_id
+            WHERE m.oxirgi <= ? AND m.oxirgi >= ? AND m.mijoz_xabarlari > 0
+              AND (c.yakun_xabari_at IS NULL OR c.yakun_xabari_at < m.oxirgi)
+        """, (chegara, eng_eski))
+        return cursor.fetchall()
+
+
+def yakun_xabarini_belgilash(chat_id: int):
+    with get_db() as conn:
+        conn.execute("UPDATE chats SET yakun_xabari_at = ? WHERE chat_id = ?", (_hozir(), chat_id))
+
+
 def mijoz_ismini_saqlash(chat_id: int, ism: str):
     """Mijoz O'ZI aytgan ism (Telegram profil nomi emas) - doimiy mijozga ismi bilan murojaat qilish uchun."""
     with get_db() as conn:
@@ -637,6 +667,8 @@ def sorov_holatini_ozgartirish(sorov_id: int, eski_holatlar: tuple, yangi_holat:
 def get_eslatiladigan_sorovlar(daqiqa: int) -> List[sqlite3.Row]:
     """Ombor belgilangan vaqtdan beri javob bermagan va hali eslatilmagan so'rovlar."""
     chegara = (datetime.now() - timedelta(minutes=daqiqa)).strftime("%Y-%m-%d %H:%M:%S")
+    # Eski (bir kundan oldingi) yozishmalar uchun xabar yuborilmaydi - bot yangilanganda "to'lqin" bo'lmasin
+    eng_eski = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     belgilar = ",".join("?" for _ in FAOL_SOROV_HOLATLARI)
     with get_db() as conn:
         cursor = conn.cursor()

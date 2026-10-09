@@ -1451,6 +1451,67 @@ class XotiraVaIshoraTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GOOGLE_SHEET_WEBHOOK_URL": ""}):
             self.assertFalse(asyncio.run(b.sheetsdan_tiklash(92, 92)))
 
+class SuhbatYakuniTest(unittest.TestCase):
+    """Mijoz 5 daqiqa yozmasa - suhbat tugagan: egaga odatdagi mijoz kartochkasi keladi (bir marta)."""
+
+    _orqaga = SessiyaTest._orqaga
+
+    def setUp(self):
+        SessiyaTest.setUp(self)
+        self.egaga = []
+
+        async def egalarga(matn, ega_id=None, reply_markup=None):
+            self.egaga.append(matn)
+
+        p = mock.patch.object(b, "egalarga_yuborish", egalarga)
+        p.start()
+        self.addCleanup(p.stop)
+
+    _yoz = SessiyaTest._yoz
+
+    def _tekshir(self):
+        asyncio.run(b.suhbat_yakunlarini_yuborish())
+
+    def test_5_daqiqadan_keyin_kartochka_keladi(self):
+        self._yoz("salom")
+        self._yoz("kran uchun 11 kVt dvigatel kerak")
+        db.upsert_lead(90, full_name="Jasur", telegram_id=90, mavzu="Kran dvigateli", mahsulot="МТКН 311-6")
+        self._tekshir()
+        self.assertEqual(self.egaga, [])                 # suhbat hali davom etmoqda
+        self._orqaga(6)
+        self._tekshir()
+        self.assertEqual(len(self.egaga), 1)
+        k = self.egaga[0]
+        self.assertIn("SUHBAT YAKUNLANDI", k)
+        self.assertIn("Jasur", k)
+        self.assertIn("МТКН 311-6", k)
+        self.assertIn("kran uchun 11 kVt", k)           # oxirgi xabari
+        self.assertNotIn("yo'q bo'lib", k)
+        self._tekshir()
+        self.assertEqual(len(self.egaga), 1)            # takror yuborilmaydi
+
+    def test_mijoz_qayta_yozsa_yana_keladi(self):
+        self._yoz("salom")
+        self._orqaga(6)
+        self._tekshir()
+        with db.get_db() as conn:  # birinchi xabar 10 daqiqa oldin yuborilgan deb hisoblaymiz
+            conn.execute("UPDATE chats SET yakun_xabari_at = datetime('now', 'localtime', '-10 minutes')")
+        self._yoz("yana bir savol: nasos ham bormi?")
+        self._orqaga(6)
+        self._tekshir()
+        self.assertEqual(len(self.egaga), 2)
+        self.assertIn("nasos ham bormi", self.egaga[1])
+
+    def test_menejer_oxirgi_yozgan_bolsa_yuborilmaydi(self):
+        self._yoz("salom")
+        db.record_owner_activity(90)
+        db.add_message(90, "assistant", "(Menejer yozdi) Hozir qo'ng'iroq qilaman")
+        self._orqaga(6)
+        with db.get_db() as conn:
+            conn.execute("UPDATE chats SET owner_last_active = (SELECT MAX(created_at) FROM messages WHERE chat_id = 90)")
+        self._tekshir()
+        self.assertEqual(self.egaga, [])
+
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):
         """AI ikki marta narx o'ylab topsa - mijozga xavfsiz matn ketadi."""

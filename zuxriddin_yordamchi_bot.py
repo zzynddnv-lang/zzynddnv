@@ -126,6 +126,8 @@ KUZATISH_SOAT = int(os.getenv("KUZATISH_SOAT", "6"))             # taklifga javo
 EGA_PAUZA_DAQIQA = int(os.getenv("EGA_PAUZA_DAQIQA", "5"))
 KEEPALIVE_ORALIQ = 10 * 60
 FON_TEKSHIRUV_ORALIQ = 5 * 60
+# Mijoz shuncha daqiqa yozmasa - suhbat tugagan hisoblanadi va egaga mijoz kartochkasi yuboriladi
+SUHBAT_YAKUNI_DAQIQA = int(os.getenv("SUHBAT_YAKUNI_DAQIQA", "5"))
 # Suhbat tarixi formati/uslubi o'zgarganda oshiriladi: ishga tushganda eski suhbat tarixi bir marta tozalanadi
 SUHBAT_VERSIYASI = "umatic-savdo-3"
 TABIIY_MIN, TABIIY_MAX = 1.5, 3.5                                 # javob tezligi: juda tez ham emas (soniya)
@@ -2156,13 +2158,48 @@ async def fon_tekshiruvlari():
             )
 
 
+async def suhbat_yakunlarini_yuborish():
+    """
+    Mijoz SUHBAT_YAKUNI_DAQIQA davomida yozmasa - suhbat tugagan: egaga odatdagi mijoz kartochkasi
+    (kim, telefon, ehtiyoj, mahsulot, bosqich, xulosa) yuboriladi. Har bir yozishma uchun bir marta.
+    """
+    for r in await asyncio.to_thread(db.get_yakunlangan_suhbatlar, SUHBAT_YAKUNI_DAQIQA):
+        await asyncio.to_thread(db.yakun_xabarini_belgilash, r["chat_id"])
+        # Menejer o'zi suhbatni olib borgan bo'lsa (pauza) - u allaqachon xabardor
+        if r["owner_last_active"] and r["owner_last_active"] >= r["oxirgi"]:
+            continue
+        lead = await asyncio.to_thread(db.get_lead, r["chat_id"])
+        if lead:
+            kartochka = lead_kartochkasi(lead, "💬 <b>SUHBAT YAKUNLANDI</b>")
+        else:
+            mijoz_id = r["mijoz_id"] or r["chat_id"]
+            kartochka = (f"💬 <b>SUHBAT YAKUNLANDI</b>\n\n👤 <b>Mijoz:</b> {mijoz_havolasi(mijoz_id, 'Mijoz')}"
+                         "\n📊 Ehtiyoj hali aniqlanmagan")
+        await egalarga_yuborish(
+            kartochka
+            + f"\n\n🗨 Suhbatda {r['mijoz_xabarlari']} ta mijoz xabari"
+            + (f"\n💬 <b>Oxirgi xabari:</b> {h(qisqartir(r['oxirgi_mijoz_xabari'] or '', 300))}"
+               if r["oxirgi_mijoz_xabari"] else "")
+            + f"\n🆔 Chat: <code>{r['chat_id']}</code>"
+        )
+
+
 async def fon_loop():
+    """Har daqiqada suhbat yakunlari, har FON_TEKSHIRUV_ORALIQ da ombor/taklif eslatmalari."""
+    otgan = 0
     while True:
-        await asyncio.sleep(FON_TEKSHIRUV_ORALIQ)
+        await asyncio.sleep(60)
+        otgan += 60
         try:
-            await fon_tekshiruvlari()
+            await suhbat_yakunlarini_yuborish()
         except Exception as e:
-            logging.exception("Fon tekshiruvida xatolik: %s", e)
+            logging.exception("Suhbat yakunini yuborishda xatolik: %s", e)
+        if otgan >= FON_TEKSHIRUV_ORALIQ:
+            otgan = 0
+            try:
+                await fon_tekshiruvlari()
+            except Exception as e:
+                logging.exception("Fon tekshiruvida xatolik: %s", e)
 
 
 # =====================================================================
