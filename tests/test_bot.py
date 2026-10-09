@@ -1304,6 +1304,103 @@ class SessiyaTest(unittest.TestCase):
         self.assertIsNotNone(db.get_sorov(sid))           # lekin bazada (CRM) saqlanib qoldi
 
 
+class XotiraVaIshoraTest(unittest.TestCase):
+    """Mijoz tekshiruvi: "bu motor" / reply, doimiy mijozni eslash, ism va telefon faqat qarordan keyin."""
+
+    _orqaga = SessiyaTest._orqaga
+
+    def setUp(self):
+        SessiyaTest.setUp(self)
+        if not b.KATALOG:
+            b.bilimlarni_yuklash()
+
+    def _yoz(self, matn, chat_id=90, reply=None):
+        msg = SimpleNamespace(
+            chat=SimpleNamespace(id=chat_id), text=matn, business_connection_id=None, sender_business_bot=None,
+            from_user=SimpleNamespace(id=chat_id, username=None, full_name="Test"), reply_to_message=reply,
+            contact=None, photo=None, document=None, location=None, voice=None, video_note=None, audio=None, caption=None,
+        )
+        asyncio.run(b.xabarni_qayta_ishlash(msg, is_business=False))
+
+    def test_rasmga_reply_konteksti(self):
+        self._yoz("salom")
+        rasm = SimpleNamespace(text=None, caption="МТН 211-6\n7,5 kVt | 1000 ob/min")
+        self._yoz("menga bu mator haqida toliq malumot ber", reply=rasm)
+        self.assertIn("МТН 211-6", self.ai_tarixlari[-1][-1])
+
+    def test_bu_motor_oxirgi_korsatilgan_model(self):
+        self._yoz("salom")
+        for model in ("МТН 112-6", "МТН 311-8", "МТН 211-6"):
+            db.add_message(90, "assistant", f"[Rasm yuborildi: {model}]")
+        self._yoz("menga bu mator haqida toliq malumot ber")
+        holat = self.ai_holatlari[-1]
+        self.assertEqual(holat["ishora_modeli"]["model"], "МТН 211-6")
+        self.assertTrue(any("МТН 211-6" in q and "so'rama" in q for q in holat["qoshimcha"]))
+
+    def test_yangi_mijozdan_ism_soralmaydi(self):
+        self._yoz("salom")
+        self._yoz("dvigatel kerak")
+        self.assertTrue(any("ismini so'rama" in q for q in self.ai_holatlari[-1]["qoshimcha"]))
+
+    def test_doimiy_mijoz_eslanadi_va_ismi_bilan(self):
+        self._yoz("salom")
+        self._yoz("kran uchun 11 kVt dvigatel kerak")
+        db.mijoz_ismini_saqlash(90, "Jasur")
+        db.upsert_lead(90, full_name="Jasur", mahsulot="МТКН 311-6 (11 kVt) - 2 dona")
+        self._orqaga(61)
+        self.yuborilgan.clear()
+        self._yoz("salom")
+        salom = self.yuborilgan[0]
+        self.assertIn("Jasur", salom)
+        self.assertIn("МТКН 311-6", salom)
+        self._yoz("yana nasos ham kerak")
+        holat = self.ai_holatlari[-1]
+        korsatma = " ".join(holat["qoshimcha"])
+        self.assertIn("DOIMIY MIJOZ (2-murojaati)", korsatma)
+        self.assertIn("Jasur", korsatma)
+        self.assertIn("kran uchun 11 kVt", korsatma)        # oldingi suhbat eslanadi
+        self.assertFalse(any("kran uchun 11 kVt" in m for m in self.ai_tarixlari[-1]))  # lekin joriy suhbat yangi
+
+    def test_doimiy_ismsiz_bir_marta_soraydi(self):
+        self._yoz("salom")
+        self._yoz("nasos kerak")
+        self._orqaga(61)
+        self._yoz("salom")
+        self._yoz("dvigatel kerak")
+        self.assertTrue(any("BIR MARTA" in q for q in self.ai_holatlari[-1]["qoshimcha"]))
+
+    def test_ai_aytgan_ism_saqlanadi(self):
+        self.assertTrue(sotuv.ism_togrimi("Jasur"))
+        for yomon in ("", "noma'lum", "Mijoz", "@ali", "998901234567"):
+            self.assertFalse(sotuv.ism_togrimi(yomon), yomon)
+
+    def test_telefon_soralgan_bolsa_qayta_soralmaydi(self):
+        self._yoz("salom")
+        db.add_message(90, "assistant", "Xohlasangiz, ismingiz va telefon raqamingizni qoldiring - majburiy emas.")
+        self._yoz("hozircha yo'q")
+        self.assertTrue(any("qayta so'rama" in q for q in self.ai_holatlari[-1]["qoshimcha"]))
+
+    def test_oldingi_suhbatdagi_motor_eslanadi(self):
+        self._yoz("salom")
+        db.add_message(90, "assistant", "[Rasm yuborildi: МТН 211-6]")
+        self._orqaga(61)
+        self._yoz("salom")
+        self._yoz("o'tgan safar gaplashgan motor bo'yicha savolim bor, uning vazni qancha?")
+        self.assertEqual(self.ai_holatlari[-1]["ishora_modeli"]["model"], "МТН 211-6")
+
+    def test_telefon_ikkinchi_marta_soralmaydi_kodda(self):
+        self.assertEqual(
+            sotuv.kontakt_takrorini_olib_tashlash("Tanishganimdan xursandman, Jasur! Telefon raqamingizni yozing.", True, "uz_latn"),
+            "Tanishganimdan xursandman, Jasur!")
+        matn = "Xohlasangiz, ismingiz va telefon raqamingizni qoldiring — majburiy emas."
+        self.assertEqual(sotuv.kontakt_takrorini_olib_tashlash(matn, False, "uz_latn"), matn)  # birinchi marta - qoladi
+
+    def test_kesilgan_javob_tozalanadi(self):
+        self.assertEqual(sotuv.kesilganni_tozalash("Ro'yxat:\n- Vazni: 135 kg\n- Qo'llanilishi: kranlar, talilar,"),
+                         "Ro'yxat:\n- Vazni: 135 kg")
+        self.assertEqual(sotuv.kesilganni_tozalash("Bu yaxshi dvigatel. U kranlar, lebyodkalar"), "Bu yaxshi dvigatel.")
+        self.assertEqual(sotuv.kesilganni_tozalash("To'liq gap."), "To'liq gap.")
+
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):
         """AI ikki marta narx o'ylab topsa - mijozga xavfsiz matn ketadi."""
@@ -1463,8 +1560,35 @@ class FaktTekshiruviTest(unittest.TestCase):
         q = sotuv.qollanish_matni(m)
         self.assertTrue(q.startswith("Агрегат ЭЦВ 8-16-140 предназначен"), q)
         t = sotuv.tafsilot_matni(m, "uz_latn")
-        self.assertIn("QO'LLANILISHI VA AFZALLIKLARI", t)
+        self.assertIn("Qo'llanilishi va afzalliklari", t)
+        self.assertIn("MIJOZ TILIGA O'GIRIB", t)
         self.assertIn("Sarf (unumdorlik): 16", t)  # xususiyat nomlari mijoz tilida
+
+    def test_bir_gapda_bir_nechta_model(self):
+        javob = ("Kran uchun МТН 112-6 (5 kVt, 935 ob/min, KPD 80%), МТН 311-8 (7,5 kVt, 700 ob/min) "
+                 "va МТН 211-6 (7,5 kVt, 1000 ob/min, KPD 82%) mos keladi.")
+        self.assertEqual(sotuv.fakt_xatolari(javob, self.K), [])
+        self.assertTrue(sotuv.fakt_xatolari("МТН 112-6 (5 kVt), МТН 311-8 (11 kVt).", self.K))
+
+    def test_omborda_bor_deb_tasdiqlanmagan_holda_aytmaydi(self):
+        javob = "Jasur, МТН 211-6 modelining 2 dona mavjudligini tasdiqladik."
+        self.assertTrue(sotuv.fakt_xatolari(javob, self.K))
+        self.assertNotIn("tasdiqladik", sotuv.faktlarni_tozalash(javob, self.K, "", "uz_latn"))
+        self.assertEqual(sotuv.fakt_xatolari(javob, self.K, "", mavjudlik_tasdiqlangan=True), [])  # ombor tasdiqlagan
+        self.assertEqual(sotuv.fakt_xatolari("Omborda mavjudligini tekshirib, taklif yuboraman.", self.K), [])
+
+    def test_aylanib_qolgan_javob_aniqlanadi(self):
+        buzuq = ("kranlar, elektr teli, lobb, metallurgiya kran-balka, telfon, lobb, metallurgiya kran-balka, "
+                 "elektr teli, lobb, metallurgiya kran-balka kabi")
+        self.assertTrue(sotuv.ichki_takrormi(buzuq))
+        royxat = ("МТН 112-6 (5 kVt, 935 ob/min, 220/380 V, KPD 80%), МТН 311-8 (7,5 kVt, 700 ob/min, 220/380 V, "
+                  "KPD 78,5%) va МТН 211-6 (7,5 kVt, 1000 ob/min, 220/380 V, KPD 82%)")
+        self.assertFalse(sotuv.ichki_takrormi(royxat))
+
+    def test_chala_havola_tuzatiladi(self):
+        javob = "To'liq ma'lumot: https://umatic.uz/magazin/product/elektrodvigatel-mtn-211-6-7-5-kvt-1000-"
+        self.assertTrue(sotuv.havolalarni_tuzatish(javob, self.K).endswith("mtn-211-6-7-5-kvt-1000-ob/min"))
+        self.assertEqual(sotuv.havolalarni_tuzatish("Sayt: https://umatic.uz/yoq-sahifa", self.K), "Sayt: https://umatic.uz")
 
     def test_stiker_tushuniladi(self):
         xabar = SimpleNamespace(text=None, sticker=SimpleNamespace(emoji="👍"), contact=None, photo=None,

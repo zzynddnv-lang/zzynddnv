@@ -8,6 +8,7 @@ Baza fayli manzili DB_PATH muhit o'zgaruvchisi orqali o'zgartirilishi mumkin
 (masalan, doimiy disk ulangan serverlarda).
 """
 
+import re
 import sqlite3
 import os
 import contextlib
@@ -78,6 +79,9 @@ def init_db():
             ("taqdimot_at", "TEXT"),
             ("til_tanlov", "TEXT"),
             ("sessiya_boshi", "TEXT"),
+            ("sessiya_soni", "INTEGER DEFAULT 1"),
+            ("mijoz_ismi", "TEXT"),
+            ("oldingi_suhbat", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE chats ADD COLUMN {ustun_nomi} {ustun_turi};")
@@ -225,11 +229,32 @@ def delete_last_message(chat_id: int):
         """, (chat_id,))
 
 
+OLDINGI_SUHBAT_XABARLARI = 8
+
+
 def clear_chat_history(chat_id: int):
-    """Chat xabarlar tarixini tozalaydi va holatni faollashtiradi."""
+    """
+    Yangi suhbat (sessiya) boshlaydi: xabarlar tarixi tozalanadi, lekin oldingi suhbatning qisqa
+    mazmuni (oxirgi xabarlar) chats.oldingi_suhbat ga saqlanadi va murojaatlar soni oshiriladi -
+    bot qaytib kelgan (doimiy) mijozni taniydi.
+    """
     vaqt = _hozir()
     with get_db() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+            (chat_id, OLDINGI_SUHBAT_XABARLARI),
+        )
+        oxirgilar = list(reversed(cursor.fetchall()))
+        if oxirgilar:
+            mazmun = "\n".join(
+                f"{'Mijoz' if r['role'] == 'user' else 'Bot'}: {re.sub(r'\s+', ' ', r['content'])[:220]}"
+                for r in oxirgilar if not r["content"].startswith("[Mijozga taqdimot")
+            )
+            cursor.execute(
+                "UPDATE chats SET oldingi_suhbat = ?, sessiya_soni = COALESCE(sessiya_soni, 1) + 1 WHERE chat_id = ?",
+                (mazmun[-1800:], chat_id),
+            )
         cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
         cursor.execute("""
             UPDATE chats SET is_completed = 0, owner_last_active = NULL, taqdimot_at = NULL,
@@ -427,10 +452,17 @@ def get_chat_meta(chat_id: int) -> Optional[sqlite3.Row]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT chat_id, mijoz_id, business_connection_id, til, til_tanlov FROM chats WHERE chat_id = ?",
+            "SELECT chat_id, mijoz_id, business_connection_id, til, til_tanlov, COALESCE(sessiya_soni, 1) AS sessiya_soni, "
+            "mijoz_ismi, oldingi_suhbat FROM chats WHERE chat_id = ?",
             (chat_id,),
         )
         return cursor.fetchone()
+
+
+def mijoz_ismini_saqlash(chat_id: int, ism: str):
+    """Mijoz O'ZI aytgan ism (Telegram profil nomi emas) - doimiy mijozga ismi bilan murojaat qilish uchun."""
+    with get_db() as conn:
+        conn.execute("UPDATE chats SET mijoz_ismi = ? WHERE chat_id = ?", (ism.strip()[:60], chat_id))
 
 
 def menejer_chaqirish_mumkinmi(chat_id: int, minutes: int = 60) -> bool:

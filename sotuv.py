@@ -543,6 +543,8 @@ _MATNLAR = {
         "salom": "Assalomu alaykum!",
         "start": "Assalomu alaykum! {kompaniya} savdo bo'limiga xush kelibsiz. Elektr dvigatel tanlashda yordam beraman. Sizga qanday quvvat va aylanish tezligidagi dvigatel kerak?",
         "taklif_izoh": "📄 Tijorat taklifi {raqam}",
+        "qaytish": "Assalomu alaykum{ism}! 👋 Yana yozganingizdan xursandmiz. Men — UMATIC kompaniyasining AI savdo yordamchisiman.{oldingi} Bugun qanday yordam bera olaman?",
+        "qaytish_oldingi": " O'tgan safar {mahsulot} bilan qiziqqan edingiz.",
         "qisqa_tanishtiruv": "Assalomu alaykum! 👋 Men — UMATIC kompaniyasining AI savdo yordamchisiman. Elektr dvigatellar, nasos agregatlari va elektroizolyatsiya materiallari bo'yicha savollaringizga javob beraman, texnik ma'lumot va rasm yuboraman.",
         "taklif_tayyorlanmoqda": "Tijorat taklifini hozir yuboraman, narx bo'yicha menejerimiz siz bilan bog'lanadi.",
         "taklif_predmeti": "Uskunalar va materiallar yetkazib berish ({soni} pozitsiya)",
@@ -567,6 +569,8 @@ _MATNLAR = {
         "salom": "Ассалому алайкум!",
         "start": "Ассалому алайкум! {kompaniya} савдо бўлимига хуш келибсиз. Электр двигател танлашда ёрдам бераман. Сизга қандай қувват ва айланиш тезлигидаги двигател керак?",
         "taklif_izoh": "📄 Тижорат таклифи {raqam}",
+        "qaytish": "Ассалому алайкум{ism}! 👋 Яна ёзганингиздан хурсандмиз. Мен — UMATIC компаниясининг AI савдо ёрдамчисиман.{oldingi} Бугун қандай ёрдам бера оламан?",
+        "qaytish_oldingi": " Ўтган сафар {mahsulot} билан қизиққан эдингиз.",
         "qisqa_tanishtiruv": "Ассалому алайкум! 👋 Мен — UMATIC компаниясининг AI савдо ёрдамчисиман. Электр двигателлар, насос агрегатлари ва электроизоляция материаллари бўйича саволларингизга жавоб бераман, техник маълумот ва расм юбораман.",
         "taklif_tayyorlanmoqda": "Тижорат таклифини ҳозир юбораман, нарх бўйича менежеримиз сиз билан боғланади.",
         "taklif_predmeti": "Ускуна ва материаллар етказиб бериш ({soni} позиция)",
@@ -591,6 +595,8 @@ _MATNLAR = {
         "salom": "Здравствуйте!",
         "start": "Здравствуйте! Добро пожаловать в отдел продаж {kompaniya}. Помогу подобрать электродвигатель. Какой мощности и частоты вращения двигатель вам нужен?",
         "taklif_izoh": "📄 Коммерческое предложение {raqam}",
+        "qaytish": "Здравствуйте{ism}! 👋 Рады, что вы снова написали. Я — AI-помощник отдела продаж UMATIC.{oldingi} Чем могу помочь сегодня?",
+        "qaytish_oldingi": " В прошлый раз вас интересовало: {mahsulot}.",
         "qisqa_tanishtiruv": "Здравствуйте! 👋 Я — AI-помощник отдела продаж компании UMATIC. Отвечу на вопросы по электродвигателям, насосным агрегатам и электроизоляционным материалам, пришлю технические данные и фото.",
         "taklif_tayyorlanmoqda": "Сейчас отправлю коммерческое предложение, по цене с вами свяжется наш менеджер.",
         "taklif_predmeti": "Поставка оборудования и материалов ({soni} поз.)",
@@ -1041,7 +1047,8 @@ def tafsilot_matni(m: dict, til: str = "ru") -> str:
     xus = "; ".join(f"{_xus_nomi(k, til)}: {v}" for k, v in list(m.get("xus", {}).items())[:16])
     qollanish = qollanish_matni(m)
     return (f"{m['model']} ({m['nomi']}) — {xus}."
-            + (f" QO'LLANILISHI VA AFZALLIKLARI (saytdan, faqat shuni ayt): {qollanish}" if qollanish else "")
+            + (f" [Qo'llanilishi va afzalliklari - saytdan, faqat shuni MIJOZ TILIGA O'GIRIB ayt]: {qollanish}"
+               if qollanish else "")
             + f" Sahifa: {m['url']}")
 
 
@@ -1104,6 +1111,13 @@ _SHART_REGEX = re.compile(
     r"(?:yetkaz|етказ|доставк|достав)\w*[^.!?\n]{0,40}?\d+\s*(?:kun|кун|дн|день|soat|соат|час)",
     re.IGNORECASE,
 )
+_MAVJUD_REGEX = re.compile(
+    r"tasdiqla(?:dik|ndi|dim)|omborda\s+(?:bor|mavjud)|mavjudligi\s+tasdiq|zaxirada\s+bor|"
+    r"тасдиқла(?:дик|нди|дим)|омборда\s+(?:бор|мавжуд)|"
+    r"в\s+наличии|есть\s+на\s+складе|подтвердил|подтверждено|имеется\s+на\s+склад",
+    re.IGNORECASE,
+)
+_MAVJUD_INKOR = re.compile(r"tekshir|aniqla|tekshiril|текшир|аниқла|провер|уточн|emas|эмас|не\s", re.IGNORECASE)
 _MENEJERGA_REGEX = re.compile(r"menejer|менеджер|менежер|aniqla|аниқла|уточн", re.IGNORECASE)
 
 
@@ -1130,7 +1144,8 @@ def _gaplar(matn: str) -> list[str]:
     return [g.strip() for g in re.split(r"(?<=[^\d\s][.!?])[ \t]+|\n+", matn or "") if g.strip()]
 
 
-def fakt_xatolari(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str = "") -> list[str]:
+def fakt_xatolari(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str = "",
+                  mavjudlik_tasdiqlangan: bool = False) -> list[str]:
     """
     AI javobidagi katalogga zid yoki o'ylab topilgan gaplar:
     - tilga olingan modelga tegishli raqam (kVt, ob/min, A, kg, %, V, m³...) shu modelning katalogida yo'q;
@@ -1143,9 +1158,6 @@ def fakt_xatolari(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str =
     xatolar = []
     joriy_model = None
     for gap in _gaplar(javob):
-        topildi = topilgan_modellar(katalog, gap, limit=1)
-        if topildi:
-            joriy_model = topildi[0]
         muammo = False
         if gap.rstrip().endswith("?"):
             continue  # savol fakt da'vo qilmaydi ("220/380 yoki 380/660 V kerakmi?")
@@ -1156,14 +1168,26 @@ def fakt_xatolari(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str =
             if len(k) >= 4 and re.search(r"\d", k) and k not in mijoz_kaliti \
                     and not any(km.startswith(k) or k.startswith(km) for km in kalitlar):
                 muammo = True
-        if joriy_model is not None and not muammo:
-            faktlar = _model_faktlari(joriy_model) | (set() if topildi else mijoz_sonlari)
+        if not muammo:
+            # Gapdagi har bir model eslatilgan joy: raqam o'zidan oldingi eng yaqin modelga tegishli
+            joylar = sorted((t.start(), m) for m in topilgan_modellar(katalog, gap, limit=10)
+                            for t in _model_naqshi(m["model"]).finditer(gap))
+            oldingi_model = joriy_model if not joylar else None
             for t in _BIRLIKLI_SON.finditer(gap):
+                egasi = next((m for joy, m in reversed(joylar) if joy < t.start()), None) or oldingi_model \
+                    or (joylar[0][1] if joylar else None)
+                if egasi is None:
+                    continue
+                faktlar = _model_faktlari(egasi) | (set() if joylar else mijoz_sonlari)
                 qiymatlar = _sonlar_toplami(t.group(1))
                 if qiymatlar and not qiymatlar & faktlar:
                     muammo = True
                     break
+            if joylar:
+                joriy_model = joylar[-1][1]
         if not muammo and _SHART_REGEX.search(gap) and not _MENEJERGA_REGEX.search(gap):
+            muammo = True
+        if not muammo and not mavjudlik_tasdiqlangan and _MAVJUD_REGEX.search(gap) and not _MAVJUD_INKOR.search(gap):
             muammo = True
         if muammo:
             xatolar.append(gap)
@@ -1179,12 +1203,12 @@ _FAKT_SARLAVHA = {"uz_latn": "Katalog bo'yicha", "uz_cyrl": "Каталог бў
 
 
 def faktlarni_tozalash(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str, til: str,
-                      mos_modellar: list[dict] = ()) -> str:
+                      mos_modellar: list[dict] = (), mavjudlik_tasdiqlangan: bool = False) -> str:
     """
     Tasdiqlanmagan gaplarni olib tashlaydi. Model tilga olingan bo'lsa, o'rniga uning katalogdagi
     asosiy ma'lumoti qo'yiladi; kafolat/yetkazish va'dasi o'rniga - menejer aniqlab berishi haqida gap.
     """
-    xatolar = fakt_xatolari(javob, katalog, mijoz_matni)
+    xatolar = fakt_xatolari(javob, katalog, mijoz_matni, mavjudlik_tasdiqlangan)
     if not xatolar:
         return javob
     shart_bor, modellar, qolgan = False, [], javob
@@ -1210,7 +1234,7 @@ def faktlarni_tozalash(javob: str, katalog: dict[str, list[dict]], mijoz_matni: 
     if shart_bor:
         qoshimcha.append(_SHART_JAVOBI.get(til, _SHART_JAVOBI["uz_latn"]))
     if not qoshimcha:
-        return qolgan
+        return qolgan or _KONTAKT_YOPISH.get(til, _KONTAKT_YOPISH["uz_latn"])
     # Qo'shimcha faktlar oxirgi savoldan oldin qo'yiladi (savol javob oxirida qolsin)
     gaplar = _gaplar(qolgan)
     if gaplar and gaplar[-1].endswith("?"):
@@ -1224,6 +1248,126 @@ _RASM_SOROV = re.compile(
     r"ko['‘’`]?rinish|кўриниш|кориниш|как\s+выгляд|qanaqa\s+ko['‘’`]?rin|ko['‘’`]?rsat|кўрсат|покаж",
     re.IGNORECASE,
 )
+
+
+# ---------- Doimiy mijoz va "bu model" kabi ishoralar ----------
+
+_ISHORA_REGEX = re.compile(
+    r"(?<![\w])(?:bu|shu|ushbu|o['‘’`]?sha|uning|uni|unga|бу|шу|ушбу|ўша|унинг|уни|унга|этот|эта|это|этого|этом|данн\w*|"
+    r"него|нему|нём|его|o['‘’`]?tgan\s+safar|ўтган\s+сафар|прошл\w+\s+раз)(?![\w])",
+    re.IGNORECASE,
+)
+
+
+def ishora_bormi(matn: str) -> bool:
+    """Mijoz 'bu motor', 'shu model', 'этот' deb oldin ko'rsatilgan mahsulotga ishora qilyaptimi."""
+    return bool(_ISHORA_REGEX.search(matn or ""))
+
+
+def oxirgi_korsatilgan_model(katalog: dict[str, list[dict]], tarix: list[dict]) -> dict | None:
+    """Bot oxirgi bo'lib ko'rsatgan (rasm yoki matnda tilga olgan) katalog modeli."""
+    for xabar in reversed(tarix):
+        if xabar.get("role") != "assistant":
+            continue
+        matn = xabar["content"]
+        topildi = topilgan_modellar(katalog, matn, limit=10)
+        if topildi:
+            # Matnda ENG OXIRIDA turgan model
+            return max(topildi, key=lambda m: max((t.start() for t in _model_naqshi(m["model"]).finditer(matn)),
+                                                 default=-1))
+    return None
+
+
+_KONTAKT_SOROV = re.compile(
+    r"telefon|телефон|raqam|рақам|номер|ismingiz|исмингиз|как\s+(?:вас|к\s+вам)\s+обращ|ваше\s+имя", re.IGNORECASE
+)
+_KONTAKT_YOPISH = {
+    "uz_latn": "Tushunarli! Yana savollaringiz bo'lsa, bemalol yozing.",
+    "uz_cyrl": "Тушунарли! Яна саволларингиз бўлса, бемалол ёзинг.",
+    "ru": "Понял! Если будут ещё вопросы — пишите.",
+}
+
+
+def kontakt_takrorini_olib_tashlash(javob: str, oldin_soralgan: bool, til: str) -> str:
+    """Ism/telefon bir marta so'raladi (ixtiyoriy) - AI uni qayta so'rasa, o'sha gap olib tashlanadi."""
+    if not oldin_soralgan:
+        return javob
+    qolgan = [g for g in _gaplar(javob) if not _KONTAKT_SOROV.search(g)]
+    if len(qolgan) == len(_gaplar(javob)):
+        return javob
+    return " ".join(qolgan).strip() or _KONTAKT_YOPISH.get(til, _KONTAKT_YOPISH["uz_latn"])
+
+
+_HAVOLA_REGEX = re.compile(r"https?://(?:www\.)?umatic\.uz[^\s)»\"'<>]*")
+
+
+def havolalarni_tuzatish(javob: str, katalog: dict[str, list[dict]]) -> str:
+    """
+    AI havolani qisqartirib yoki o'zgartirib yozsa (".../mtn-211-6-7-5-kvt-1000-") - katalogdagi aniq havola
+    qo'yiladi; topilmasa - sayt bosh sahifasi. Mijozga ishlamaydigan havola bormaydi.
+    """
+    hammasi = _hamma_mahsulotlar(katalog)
+    urllar = {m["url"] for m in hammasi}
+
+    def tuzat(t: re.Match) -> str:
+        url = t.group(0).rstrip(".,;:!?")
+        qoldiq = t.group(0)[len(url):]
+        if url in urllar or re.fullmatch(r"https?://(?:www\.)?umatic\.uz/?", url):
+            return t.group(0)
+        mos = [u for u in urllar if u.startswith(url) and len(url) > 30]
+        if len(mos) == 1:
+            return mos[0] + qoldiq
+        # Havola oldidagi matnda tilga olingan model
+        oldi = javob[max(0, t.start() - 300):t.start()]
+        model = topilgan_modellar(katalog, oldi, limit=1)
+        return (model[0]["url"] if model else "https://umatic.uz") + qoldiq
+
+    return _HAVOLA_REGEX.sub(tuzat, javob or "")
+
+
+def ichki_takrormi(javob: str, n: int = 4, chegara: int = 3) -> bool:
+    """
+    AI javobi ichida bir xil ibora (4 so'z) 3 va undan ko'p marta takrorlansa - buzilgan ("aylanib qolgan") javob.
+    Raqam va qisqa birliklar hisobga olinmaydi (bir nechta model ro'yxati takror sanalmasin).
+    """
+    sozlar = re.findall(r"[^\W\d_]{4,}", (javob or "").lower())
+    sanoq: dict[tuple, int] = {}
+    for i in range(len(sozlar) - n + 1):
+        k = tuple(sozlar[i:i + n])
+        sanoq[k] = sanoq.get(k, 0) + 1
+        if sanoq[k] >= chegara:
+            return True
+    return False
+
+
+def kesilganni_tozalash(javob: str) -> str:
+    """AI javobi token limitida o'rtada uzilib qolgan bo'lsa - oxirgi to'liq gap yoki qatorgacha qisqartiriladi."""
+    matn = (javob or "").rstrip()
+    if not matn or re.search(r"[.!?)»\"”…:]$|[\U0001F300-\U0001FAFF]$", matn):
+        return matn
+    qatorlar = matn.split("\n")
+    oxirgi_qator = qatorlar[-1].strip()
+    toliq_band = (re.match(r"^(?:[-*•]|\d+[.)])\s", oxirgi_qator) and len(oxirgi_qator) < 80
+                  and ":" in oxirgi_qator and not re.search(r"[,;–-]$", oxirgi_qator))
+    if toliq_band or re.search(r"https?://\S+$", oxirgi_qator):
+        return matn  # "- Vazni: 135 kg" yoki havola - to'liq qator
+    if len(qatorlar) > 1:
+        # Oxirgi (chala) qator tashlanadi - ro'yxatning to'liq qatorlari qoladi
+        return "\n".join(qatorlar[:-1]).rstrip(" ,;-")
+    oxirgi = max(matn.rfind(". "), matn.rfind("! "), matn.rfind("? "))
+    return matn[: oxirgi + 1] if oxirgi > 0 else matn.rstrip(" ,;-") + "."
+
+
+def mahsulot_qisqa(mahsulot: str) -> str:
+    """CRM dagi 'АИР90L6У1 (1,5 kVt) - 2 dona; ...' -> 'АИР90L6У1' (salomlashish uchun)."""
+    birinchi = (mahsulot or "").split(";")[0]
+    return re.split(r"\s+\(|\s+-\s+", birinchi)[0].strip()[:60]
+
+
+def ism_togrimi(ism: str) -> bool:
+    """AI 'mijoz.ism' ga yozgan qiymat haqiqiy ismga o'xshaydimi (bo'sh, 'noma'lum' emas)."""
+    ism = (ism or "").strip()
+    return 2 <= len(ism) <= 40 and not re.search(r"noma|неизв|unknown|mijoz|клиент|\d|@", ism, re.IGNORECASE)
 
 
 RASM_TAHLIL_KORSATMASI = (

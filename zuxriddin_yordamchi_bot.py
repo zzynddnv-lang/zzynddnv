@@ -223,12 +223,14 @@ QOIDALAR:
 5. AVVAL mijozning savoliga TO'LIQ javob ber: u so'ragan HAR BIR narsaga (masalan, tok, vazn VA qayerda ishlatilishi) javob bo'lsin. Texnik ma'lumot so'ralsa - qisqa ro'yxat qilib yozish mumkin. Oddiy javob 2-5 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
 6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. Asosiy parametrlar va miqdor ma'lum bo'lsa narx_sorash=true.
 6b. Model va seriya nomlarini KATALOGDAGIDEK kirill harflarida yoz (АИР132М4У1, МТН 411-8, ЭЦВ 8-25-100, ПЭТВ-2) - hech qachon lotinga o'girma.
-6c. Texnik savolga TAFSILOT bo'limidagi ma'lumot bilan to'liq javob ber (tok, vazn, val, KPD...), kerak bo'lsa mahsulot sahifasi havolasini ber.
+6c. TAFSILOT va KATALOG ruscha - ularni mijoz tiliga O'GIRIB yoz, ruscha gaplarni ko'chirma (faqat model nomlari kirillda qoladi). Texnik savolga TAFSILOT bo'limidagi ma'lumot bilan javob ber: mijoz so'ragan parametrlar, "to'liq ma'lumot" so'ralsa - eng muhim 8-10 tasi qisqa ro'yxatda va 1-2 gap qo'llanilishi, oxirida mahsulot sahifasi havolasi (javob 900 belgidan oshmasin).
 7. Sen AI yordamchisan, odam ekanligingni da'vo qilma; "kimsiz?" desa - UMATIC ning AI savdo yordamchisi ekaningni ayt. Mijoz rasm so'rasa - katalog rasmi javobingdan keyin avtomatik yuboriladi (JORIY HOLATda ko'rsatiladi): "tizim" so'zini ishlatma, qisqa "mana, rasmi" mazmunida ayt. Mijoz rasm yuborsa - uning avtomatik tavsifi [Mijoz rasm yubordi ...] ichida beriladi: shildik ma'lumoti bo'lsa shu parametrlarga katalogdan mos model tavsiya qil. [Mijoz stiker yubordi ...] - stiker ma'nosiga mos qisqa, samimiy javob berib suhbatni davom ettir (👍 - rozilik, 🙏 - minnatdorchilik, 😂 - hazil).
 7a. "(Menejer yozdi)" bilan boshlangan xabarlarni jonli menejer yozgan: ularga zid gapirma, uning aytganlarini davom ettir, bu belgini o'zing yozma.
 8a. Har qanday savolga O'ZING to'liq javob ber (bilimlar va katalog asosida) va ehtiyojga qarab aniq mahsulot tavsiya qil. "Menejer siz bilan bog'lanadi" deb FAQAT narx, chegirma, omborda borligi yoki yetkazib berish so'ralganda ayt - butun suhbatda ko'pi bilan 1 marta. Texnik va umumiy savollarni menejerga yo'naltirma.
 9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
 10. buyurtma_tasdiqlandi=true faqat mijoz yuborilgan taklifni aniq qabul qilsa.
+11. Ism va telefonni suhbat boshida va o'rtasida SO'RAMA. Faqat mijoz qaror qilgandan keyin (model tanladi, taklif/narx so'radi, buyurtma bermoqchi) bir marta, majburiy emasligini aytib so'ra: "Xohlasangiz, ismingiz va telefon raqamingizni qoldiring - majburiy emas". Bermasa - qayta so'rama. Doimiy mijoz haqidagi ko'rsatma JORIY HOLATda beriladi.
+12. Mijoz "bu", "shu motor", "этот" desa yoki bot xabariga javoban yozsa - gap o'sha ko'rsatilgan model haqida: "qaysi model?" deb qayta so'rama, shu model haqida to'liq javob ber.
 
 JSON: mahsulotlar - suhbatdagi barcha pozitsiyalarning so'nggi holati (miqdor noma'lum = 0); mijoz - faqat mijoz o'zi aytgani; xulosa - menejer uchun 1-2 gap.
 Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, mahsulotlar[{{nomi, parametrlar, miqdor, birlik}}], narx_sorash, buyurtma_tasdiqlandi, bosqich, harorat, menejer_kerak, menejer_sababi, xulosa.
@@ -609,7 +611,10 @@ async def _groq_sorov(model: str, messages: list) -> dict | None:
             raise
         logging.info("Model '%s' qat'iy sxemani bajarmadi/qo'llamaydi, oddiy JSON rejimida qayta so'ralmoqda.", model)
         resp = await groq_chat.chat.completions.create(response_format={"type": "json_object"}, **umumiy)
-    return sotuv.ai_natijasini_ajratish(resp.choices[0].message.content or "")
+    natija = sotuv.ai_natijasini_ajratish(resp.choices[0].message.content or "")
+    if natija is not None and getattr(resp.choices[0], "finish_reason", None) == "length":
+        natija["javob"] = sotuv.kesilganni_tozalash(natija["javob"])
+    return natija
 
 
 def _javob_muammolari(natija: dict, til: str, taklif_bor: bool, oldingilar: list[str] = ()) -> list[str]:
@@ -619,6 +624,8 @@ def _javob_muammolari(natija: dict, til: str, taklif_bor: bool, oldingilar: list
         muammolar.append("Javobingda narx yoki summa bor. Narx AYTMA - uni faqat ombor beradi.")
     if not sotuv.yozuv_mosmi(natija["javob"], til):
         muammolar.append(f"Javob noto'g'ri tilda. \"javob\" ni FAQAT {TIL_NOMLARI.get(til, til)} tilida yoz.")
+    if sotuv.ichki_takrormi(natija["javob"]):
+        muammolar.append("Javobingda bir xil so'zlar qayta-qayta takrorlanyapti. Qisqa va aniq yoz, takrorlama.")
     if sotuv.takrorlanganmi(natija["javob"], oldingilar):
         muammolar.append(
             "Javobing oldingi javobingni deyarli so'zma-so'z takrorlayapti. Mijozning oxirgi xabariga "
@@ -642,7 +649,12 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     katalog = sotuv.katalog_tanlash(KATALOG, mijoz_matni)
     # Mijoz (yoki bot oxirgi javobida) tilga olingan aniq modellar - to'liq texnik ma'lumot
     oxirgi_xabarlar = " ".join(m["content"] for m in tarix[-3:])
-    tafsilot_modellari = sotuv.topilgan_modellar(KATALOG, oxirgi_xabarlar, limit=2)
+    joriy_matn = tarix[-1]["content"] if tarix and tarix[-1].get("role") == "user" else ""
+    tafsilot_modellari = sotuv.topilgan_modellar(KATALOG, joriy_matn, limit=2)
+    if holat.get("ishora_modeli") and holat["ishora_modeli"] not in tafsilot_modellari:
+        tafsilot_modellari.append(holat["ishora_modeli"])
+    tafsilot_modellari += [m for m in sotuv.topilgan_modellar(KATALOG, oxirgi_xabarlar, limit=2)
+                           if m not in tafsilot_modellari][: max(0, 2 - len(tafsilot_modellari))]
     # Mijoz aytgan kVt va ob/min ga AYNAN mos modellar dasturda topiladi (AI raqamlarni adashtirmasin)
     mos = sotuv.aniq_mos_modellar(KATALOG, mijoz_matni, limit=2)
     tafsilot_modellari += [m for m in mos if m not in tafsilot_modellari][: max(0, 3 - len(tafsilot_modellari))]
@@ -1770,6 +1782,43 @@ async def xabar_matnini_olish(message: types.Message, is_business: bool) -> str 
     return None
 
 
+def iqtibos_matni(message: types.Message) -> str:
+    """Mijoz qaysi xabarga javoban yozdi (Telegram "reply" yoki qisman iqtibos) - matni yoki rasm izohi."""
+    quote = getattr(message, "quote", None)
+    if quote is not None and getattr(quote, "text", None):
+        return re.sub(r"\s+", " ", quote.text).strip()[:300]
+    javob = getattr(message, "reply_to_message", None)
+    if javob is None:
+        return ""
+    return re.sub(r"\s+", " ", javob.text or javob.caption or "").strip()[:300]
+
+
+def doimiy_mijoz_korsatmasi(meta, lead, tarix: list[dict]) -> list[str]:
+    """Doimiy (qaytib kelgan) mijozni tanish, ism bilan murojaat va kontaktni faqat qarordan keyin so'rash."""
+    qatorlar = []
+    soni = meta["sessiya_soni"] if meta else 1
+    ism = meta["mijoz_ismi"] if meta else ""
+    if soni >= 2:
+        qatorlar.append(
+            f"DOIMIY MIJOZ ({soni}-murojaati). "
+            + (f"Ismi: {ism} - unga ismi bilan murojaat qil (tabiiy, har gapda emas)."
+               if ism else "Ismi noma'lum: suhbat davomida BIR MARTA xushmuomala so'ra (\"Sizga qanday murojaat qilsam bo'ladi?\").")
+            + (f" Oldingi suhbatdan: {meta['oldingi_suhbat'][-700:]}" if meta and meta["oldingi_suhbat"] else "")
+            + (f" CRM: qiziqqan - {lead['mahsulot']}; {lead['xulosa'] or ''}" if lead and lead["mahsulot"] else "")
+            + " Oldingi qiziqishini kerak bo'lsa eslat, lekin hozirgi savoliga javob ber."
+        )
+    elif ism:
+        qatorlar.append(f"Mijoz ismini aytgan: {ism}.")
+    else:
+        qatorlar.append("Yangi mijoz: ismini so'rama va o'zi aytmaguncha ism bilan murojaat qilma.")
+    telefon_bor = bool(lead and lead["telefon"])
+    soralgan = any(m.get("role") == "assistant" and re.search(r"telefon|телефон|raqam|рақам|номер", m["content"], re.IGNORECASE)
+                   for m in tarix)
+    if telefon_bor or soralgan:
+        qatorlar.append("Telefon " + ("ma'lum" if telefon_bor else "allaqachon so'ralgan") + " - qayta so'rama.")
+    return qatorlar
+
+
 async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True):
     """Mijoz xabarini qayta ishlaydi: AI javobi, CRM, narx so'rovi."""
     chat_id = message.chat.id
@@ -1825,9 +1874,14 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         else:
             til = sotuv.tilni_aniqlash(xabar_matni, meta["til"] if meta else "")
 
-        await asyncio.to_thread(db.add_message, chat_id, "user", xabar_matni)
+        # Mijoz bot xabariga (masalan, model rasmiga) javoban yozgan bo'lsa - o'sha xabar ham kontekstga kiradi
+        iqtibos = iqtibos_matni(message)
+        tarix_matni = f"{xabar_matni}\n[Mijoz shu xabarga javoban yozdi: «{iqtibos}»]" if iqtibos else xabar_matni
+        await asyncio.to_thread(db.add_message, chat_id, "user", tarix_matni)
         await asyncio.to_thread(db.save_chat_meta, chat_id, message.from_user.id, bcid, til)
-        tarix.append({"role": "user", "content": xabar_matni})
+        tarix.append({"role": "user", "content": tarix_matni})
+        lead = await asyncio.to_thread(db.get_lead, chat_id)
+        doimiy = bool(meta and meta["sessiya_soni"] >= 2)
 
         # Bot bu chatda birinchi marta javob beryapti: AI dan oldin O'ZINI TANISHTIRADI.
         # Menejer (Zuxriddin) shu odam bilan oxirgi 24 soatda yozishgan bo'lsa - qisqa tanishtiruv
@@ -1835,7 +1889,16 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         taqdimot_hozir = False
         if not await asyncio.to_thread(db.taqdimot_yuborilganmi, chat_id):
             menejer_yozishgan = await asyncio.to_thread(db.is_owner_recently_active, chat_id, 24 * 60)
-            tanishtiruv = tmatn("qisqa_tanishtiruv", til) if menejer_yozishgan else tanishtiruv_matni(til)
+            if doimiy:
+                # Qaytib kelgan mijoz: uzun taqdimot o'rniga - ismi va oldingi qiziqishi bilan qisqa salom
+                ism = meta["mijoz_ismi"] or ""
+                mahsulot = sotuv.mahsulot_qisqa(lead["mahsulot"]) if lead and lead["mahsulot"] else ""
+                tanishtiruv = tmatn("qaytish", til).format(
+                    ism=f", {ism}" if ism else "",
+                    oldingi=tmatn("qaytish_oldingi", til).format(mahsulot=mahsulot) if mahsulot else "",
+                )
+            else:
+                tanishtiruv = tmatn("qisqa_tanishtiruv", til) if menejer_yozishgan else tanishtiruv_matni(til)
             async with YozmoqdaHolati(chat_id, bcid):
                 await asyncio.sleep(tabiiy_kutish(tanishtiruv, boshlangan))
             if await mijozga_yuborish(chat_id, bcid, tanishtiruv) is None:
@@ -1849,14 +1912,29 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
         holat = await asyncio.to_thread(suhbat_holati, chat_id)
         boshlangan = asyncio.get_running_loop().time()
+        holat["qoshimcha"] = doimiy_mijoz_korsatmasi(meta, lead, tarix)
+        # "bu motor haqida" - qaysi model ekanini dastur aniqlaydi (bot qayta so'rab o'tirmasin)
+        if not sotuv.topilgan_modellar(KATALOG, tarix_matni, limit=1) and sotuv.ishora_bormi(xabar_matni):
+            ishora = sotuv.oxirgi_korsatilgan_model(KATALOG, tarix[:-1])
+            if ishora is None and meta and (meta["oldingi_suhbat"] or (lead and lead["mahsulot"])):
+                oldingi = [{"role": "assistant", "content": (meta["oldingi_suhbat"] or "") + " " +
+                            ((lead["mahsulot"] or "") if lead else "")}]
+                ishora = sotuv.oxirgi_korsatilgan_model(KATALOG, oldingi)
+            if ishora:
+                holat["ishora_modeli"] = ishora
+                holat["qoshimcha"].append(
+                    f"Mijoz \"bu/shu\" deb oxirgi ko'rsatilgan {ishora['model']} ni nazarda tutyapti - aynan shu model "
+                    "haqida TAFSILOT asosida to'liq javob ber, \"qaysi model?\" deb so'rama."
+                )
 
         # Mijoz rasm so'radimi? Model shu xabarda yoki botning oxirgi javobida bo'lsa - katalog rasmi yuboriladi
         rasm_soraldi = sotuv.rasm_soraldimi(xabar_matni)
         rasm_modellari = []
         if rasm_soraldi:
             suhbat_matni = " ".join(m["content"] for m in tarix[-6:-1])
-            rasm_modellari = sotuv.rasm_uchun_mahsulotlar(KATALOG, xabar_matni, suhbat_matni)
-            holat["qoshimcha"] = [
+            joriy_rasm = tarix_matni + (" " + holat["ishora_modeli"]["model"] if holat.get("ishora_modeli") else "")
+            rasm_modellari = sotuv.rasm_uchun_mahsulotlar(KATALOG, joriy_rasm, suhbat_matni)
+            holat["qoshimcha"] += [
                 f"Javobingdan keyin mijozga quyidagi mahsulotlar RASMI avtomatik yuboriladi: "
                 f"{', '.join(m['model'] for m in rasm_modellari)}. Qisqa ayt (masalan: mana rasmi), "
                 "\"rasm yo'q\" yoki \"rasm yubora olmayman\" DEMA."
@@ -1886,12 +1964,14 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
         javob = re.sub(r"^\s*\(Menejer yozdi\)\s*", "", natija["javob"])
         javob = sotuv.atamalarni_tuzatish(sotuv.model_nomlarini_tuzatish(javob, KATALOG))
+        javob = sotuv.havolalarni_tuzatish(javob, KATALOG)
         # Katalogga zid raqam, yo'q model yoki kafolat/yetkazish va'dasi - mijozga bormaydi
         mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
-        tozalangan = sotuv.faktlarni_tozalash(javob, KATALOG, mijoz_matni, til, natija.get("_mos") or [])
+        tasdiqlangan = holat.get("taklif") is not None
+        tozalangan = sotuv.faktlarni_tozalash(javob, KATALOG, mijoz_matni, til, natija.get("_mos") or [], tasdiqlangan)
         if tozalangan != javob:
             logging.warning("Chat %s: AI javobida tasdiqlanmagan fakt olib tashlandi: %s", chat_id,
-                            sotuv.fakt_xatolari(javob, KATALOG, mijoz_matni))
+                            sotuv.fakt_xatolari(javob, KATALOG, mijoz_matni, tasdiqlangan))
             javob = tozalangan or tmatn("narx_aniqlanadi", til)
         for poz in natija["mahsulotlar"]:  # PDF va CRM ga ham to'g'ri nom
             poz["nomi"] = sotuv.model_nomlarini_tuzatish(poz["nomi"], KATALOG)
@@ -1913,10 +1993,16 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                 natija["narx_sorash"] = True
                 kalit_matn = {"narx": "kutish", "mavjudlik": "mavjudlik_tekshirilmoqda"}.get(TAKLIF_REJIMI, "taklif_tayyorlanmoqda")
                 javob = f"{javob}\n\n{tmatn(kalit_matn, til)}"
+        # Ism/telefon bir marta so'raladi - AI ko'rsatmaga qaramay qayta so'rasa, o'sha gap olib tashlanadi
+        kontakt_soralgan = (bool(lead and lead["telefon"]) or any(
+            m["role"] == "assistant" and re.search(r"telefon|телефон|номер", m["content"], re.IGNORECASE) for m in tarix[:-1]))
+        javob = sotuv.kontakt_takrorini_olib_tashlash(javob, kontakt_soralgan, til)
         # Suhbatda allaqachon minnatdorchilik bildirilgan bo'lsa - har javobda "Rahmat" takrorlanmaydi
         oldin_rahmat = any(m["role"] == "assistant" and sotuv.rahmat_aytilganmi(m["content"]) for m in tarix)
         javob = sotuv.takroriy_rahmatni_olib_tashlash(javob, oldin_rahmat, natija["mijoz"]["ism"])
 
+        if len(javob) > 600:  # uzun javob model limitida o'rtada uzilib qolgan bo'lishi mumkin
+            javob = sotuv.kesilganni_tozalash(javob)
         kutish = tabiiy_kutish(javob, boshlangan)
         if kutish:
             async with YozmoqdaHolati(chat_id, bcid):
@@ -1932,6 +2018,11 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
 
 async def crm_yangilash_xavfsiz(chat_id, mijoz, natija, holat, xabar_matni, bcid, ega_id):
+    if sotuv.ism_togrimi(natija["mijoz"]["ism"]):
+        try:
+            await asyncio.to_thread(db.mijoz_ismini_saqlash, chat_id, natija["mijoz"]["ism"])
+        except Exception as e:
+            logging.warning("Mijoz ismini saqlab bo'lmadi (chat %s): %s", chat_id, e)
     try:
         await crm_yangilash(chat_id, mijoz, natija, holat, xabar_matni, bcid, ega_id)
     except Exception as e:
