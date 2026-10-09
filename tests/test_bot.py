@@ -1405,5 +1405,92 @@ class AiFallbackTest(unittest.TestCase):
                 asyncio.run(b.ai_javob([{"role": "user", "content": "salom"}], {"faol": None, "taklif": None}))
 
 
+class FaktTekshiruviTest(unittest.TestCase):
+    """Mijoz tekshiruvi: bot noto'g'ri ma'lumot yozmasin, stiker va rasmni tushunsin."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bilimlar", "katalog.json"),
+                  encoding="utf-8") as f:
+            cls.K = sotuv.katalogni_tayyorlash(json.load(f))
+
+    def test_boshqa_model_raqami_olib_tashlanadi(self):
+        # Haqiqiy xato: АИР132М4У1 katalogda 11 kVt, AI esa mijoz aytgan 1,5 kVt ni unga yopishtirgan
+        javob = "Ajoyib, АИР132М4У1 модели 1,5 kVt, 1000 ob/min. Qaysi mexanizm uchun?"
+        mijoz = "1,5 kvt 1000 ob/min dvigatel kerak"
+        self.assertTrue(sotuv.fakt_xatolari(javob, self.K, mijoz))
+        mos = sotuv.aniq_mos_modellar(self.K, mijoz)
+        self.assertEqual([m["model"] for m in mos], ["АИР90L6У1"])
+        tozalangan = sotuv.faktlarni_tozalash(javob, self.K, mijoz, "uz_latn", mos)
+        self.assertNotIn("АИР132М4У1", tozalangan)
+        self.assertIn("АИР90L6У1", tozalangan)
+        self.assertIn("1,5 kVt", tozalangan)
+        self.assertTrue(tozalangan.endswith("?"))
+
+    def test_togri_raqamlar_tegilmaydi(self):
+        for javob, til in (
+            ("АИР90L6У1 моделининг номинал токи 4,0 А, вазни 26,2 кг, вал диаметри эса 24 мм.", "uz_cyrl"),
+            ("Модель МТКН 311-6 имеет максимальный момент 385 Н·м, масса 175 кг.", "ru"),
+            ("АИР355S6У1 160 кВт, вес 1 200 кг, IP55.", "ru"),
+        ):
+            self.assertEqual(sotuv.fakt_xatolari(javob, self.K), [], javob)
+            self.assertEqual(sotuv.faktlarni_tozalash(javob, self.K, "", til), javob)
+
+    def test_ortiqcha_raqam_va_yoq_model(self):
+        javob = "ЭЦВ 8-25-100: napor 100 m. Tok 30 A. Yana АИР999Z9 ham bor."
+        xatolar = sotuv.fakt_xatolari(javob, self.K)
+        self.assertIn("Tok 30 A.", xatolar)
+        self.assertIn("Yana АИР999Z9 ham bor.", xatolar)
+
+    def test_savol_variantlari_va_royxat_saqlanadi(self):
+        javob = ("АИР90L6У1: 1,5 кВт, 1000 об/мин, IP54. Саволлар:
+1. Қандай муҳитда ўрнатасиз?
+"
+                 "2. Кучланиш 220/380 В ёки 380/660 В керакми?
+3. Ток 9 А бўлади.")
+        self.assertEqual(sotuv.fakt_xatolari(javob, self.K), ["3. Ток 9 А бўлади."])
+        tozalangan = sotuv.faktlarni_tozalash(javob, self.K, "", "uz_cyrl")
+        self.assertIn("
+2. Кучланиш 220/380 В ёки 380/660 В керакми?", tozalangan)
+        self.assertNotIn("9 А", tozalangan)
+
+    def test_kafolat_oylab_topilmaydi(self):
+        javob = "Ha, mahsulotlarimizga standart kafolat (odatda 12 oy) beriladi. Qaysi uskuna kerak?"
+        tozalangan = sotuv.faktlarni_tozalash(javob, self.K, "kafolat bormi", "uz_latn")
+        self.assertNotIn("12 oy", tozalangan)
+        self.assertIn("menejer", tozalangan)
+        # Menejerga yo'naltirgan gap - joyida qoladi
+        self.assertEqual(sotuv.fakt_xatolari("Kafolat shartlarini menejer aniqlab beradi.", self.K), [])
+
+    def test_qollanish_va_afzallik_saytdan(self):
+        m = next(x for x in sotuv._hamma_mahsulotlar(self.K) if x["model"] == "ЭЦВ 8-16-140")
+        q = sotuv.qollanish_matni(m)
+        self.assertTrue(q.startswith("Агрегат ЭЦВ 8-16-140 предназначен"), q)
+        t = sotuv.tafsilot_matni(m, "uz_latn")
+        self.assertIn("QO'LLANILISHI VA AFZALLIKLARI", t)
+        self.assertIn("Sarf (unumdorlik): 16", t)  # xususiyat nomlari mijoz tilida
+
+    def test_stiker_tushuniladi(self):
+        xabar = SimpleNamespace(text=None, sticker=SimpleNamespace(emoji="👍"), contact=None, photo=None,
+                                document=None, location=None, voice=None, video_note=None, audio=None)
+        self.assertEqual(asyncio.run(b.xabar_matnini_olish(xabar, True)), "[Mijoz stiker yubordi 👍]")
+
+    def test_mijoz_rasmi_tahlil_qilinadi(self):
+        xabar = SimpleNamespace(text=None, sticker=None, contact=None, photo=[SimpleNamespace(file_id="F1")],
+                                document=None, location=None, caption="shu dvigatel kerak")
+
+        async def tahlil(file_id):
+            return "Shildik: АИР100L4, 4 kVt, 1435 ob/min"
+
+        async def menejerga(message, turi):
+            return None
+
+        with mock.patch.object(b, "rasmni_tahlil_qilish", tahlil), \
+                mock.patch.object(b, "mediani_menejerga_yuborish", menejerga):
+            matn = asyncio.run(b.xabar_matnini_olish(xabar, True))
+        self.assertIn("АИР100L4, 4 kVt", matn)
+        self.assertIn("shu dvigatel kerak", matn)
+
+
 if __name__ == "__main__":
     unittest.main()

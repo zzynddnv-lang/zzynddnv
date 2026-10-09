@@ -976,16 +976,262 @@ def atamalarni_tuzatish(matn: str) -> str:
     return matn
 
 
-def tafsilot_matni(m: dict) -> str:
-    """Aniq model uchun to'liq texnik ma'lumot (AI texnik savollarga javob berishi uchun)."""
-    xus = "; ".join(f"{k}: {v}" for k, v in list(m.get("xus", {}).items())[:16])
-    return f"{m['model']} ({m['nomi']}) — {xus}. {m.get('tavsif', '')[:350]} Sahifa: {m['url']}"
+# Katalog (ruscha) xususiyat nomlari mijoz tilida - AI ruscha so'zlarni o'zbekcha javobga aralashtirmasligi uchun
+_XUS_NOMLARI = (
+    (r"^Мощность двигателя", "Dvigatel quvvati", "Двигатель қуввати"),
+    (r"^Мощность потребляемая.*макс", "Maks. iste'mol quvvati", "Макс. истеъмол қуввати"),
+    (r"^Мощность потребляемая", "Iste'mol quvvati", "Истеъмол қуввати"),
+    (r"^Мощность", "Quvvat", "Қувват"),
+    (r"число оборотов|Частота вращения", "Aylanish tezligi", "Айланиш тезлиги"),
+    (r"^Напряжение между кольцами", "Rotor halqalari kuchlanishi", "Ротор ҳалқалари кучланиши"),
+    (r"^Напряжение", "Kuchlanish", "Кучланиш"),
+    (r"^КПД", "FIK (KPD)", "ФИК (КПД)"),
+    (r"^Номинальный ток ротора", "Rotor toki", "Ротор токи"),
+    (r"^Номинальный ток|^Ток", "Nominal tok", "Номинал ток"),
+    (r"^Вес|^Масса", "Vazni", "Вазни"),
+    (r"^Степень защиты", "Himoya darajasi", "Ҳимоя даражаси"),
+    (r"^Высота вала", "Val balandligi", "Вал баландлиги"),
+    (r"^Диаметр вала", "Val diametri", "Вал диаметри"),
+    (r"^Класс изоляции", "Izolyatsiya sinfi", "Изоляция синфи"),
+    (r"^Материал обмотки", "O'ram materiali", "Ўрам материали"),
+    (r"^Способ крепления", "Mahkamlash usuli", "Маҳкамлаш усули"),
+    (r"^Монтажное исполнение", "Montaj ijrosi", "Монтаж ижроси"),
+    (r"^Подача", "Sarf (unumdorlik)", "Сарф (унумдорлик)"),
+    (r"^Напор", "Napor", "Напор"),
+    (r"^Частота тока", "Tok chastotasi", "Ток частотаси"),
+    (r"^Максимальный момент", "Maksimal moment", "Максимал момент"),
+    (r"^Соотношение максимального", "Maks./nominal moment nisbati", "Макс./номинал момент нисбати"),
+    (r"^Момент инерции", "Rotor inersiya momenti", "Ротор инерция моменти"),
+    (r"^Диаметр", "Diametr", "Диаметр"),
+    (r"^Материал", "Material", "Материал"),
+)
+_QOLLANISH_KALIT = re.compile(r"предназнач|применя|использу|подходит|служит", re.IGNORECASE)
+
+
+def _xus_nomi(kalit: str, til: str) -> str:
+    if til == "ru":
+        return kalit
+    for naqsh, lotin, kirill in _XUS_NOMLARI:
+        if re.search(naqsh, kalit, re.IGNORECASE):
+            return kirill if til == "uz_cyrl" else lotin
+    return kalit
+
+
+def qollanish_matni(m: dict, n: int = 650) -> str:
+    """
+    Katalog tavsifidan mahsulotning QO'LLANILISHI va AFZALLIKLARI (umatic.uz matni, texnik jadvalsiz).
+    AI afzallik va qo'llanish sohasini o'ylab topmasligi uchun aynan shu matn beriladi.
+    """
+    tavsif = re.sub(r"\s+", " ", m.get("tavsif", "")).strip()
+    kalit = _QOLLANISH_KALIT.search(tavsif)
+    if not kalit:
+        return ""
+    # Kalit so'z turgan gapning boshi: undan oldingi eng yaqin bosh harfli so'z ("Электродвигатель ...", "Агрегат ...")
+    boshlar = [t.start() for t in re.finditer(r"(?<![\w])[А-ЯЁ][а-яё]", tavsif[:kalit.start()])]
+    matn = tavsif[boshlar[-1] if boshlar else kalit.start():].strip(" :")
+    # Reklama chaqiriqlari (fakt emas) olib tashlanadi
+    matn = re.split(r"Не упустите|Обратитесь к нашим|Свяжитесь с нами|Закажите", matn)[0].strip()
+    if len(matn) > n:
+        matn = matn[:n].rsplit(". ", 1)[0] + "."
+    return matn
+
+
+def tafsilot_matni(m: dict, til: str = "ru") -> str:
+    """Aniq model uchun to'liq texnik ma'lumot, qo'llanilishi va afzalliklari (faqat katalogdagi faktlar)."""
+    xus = "; ".join(f"{_xus_nomi(k, til)}: {v}" for k, v in list(m.get("xus", {}).items())[:16])
+    qollanish = qollanish_matni(m)
+    return (f"{m['model']} ({m['nomi']}) — {xus}."
+            + (f" QO'LLANILISHI VA AFZALLIKLARI (saytdan, faqat shuni ayt): {qollanish}" if qollanish else "")
+            + f" Sahifa: {m['url']}")
+
+
+# ---------- Mijoz parametrlariga ANIQ mos modellarni dastur tanlaydi ----------
+
+_SINXRON_TEZLIKLAR = (3000, 1500, 1000, 750, 600, 500)
+
+
+def _sinxron_tezlik(ob: float) -> int:
+    """1460 -> 1500, 985 -> 1000, 2930 -> 3000 (nominal tezlik sinxrondan biroz past bo'ladi)."""
+    if not ob:
+        return 0
+    return min(_SINXRON_TEZLIKLAR, key=lambda t: abs(t - ob) if ob <= t * 1.01 else 10 ** 6)
+
+
+def _model_tezligi(m: dict) -> float:
+    ob = _xus(m, r"число оборотов|частота вращения")
+    if not ob:
+        t = re.search(r"([\d\s]+)об/мин", m.get("nomi", ""))
+        ob = t.group(1) if t else ""
+    return _son(ob)
+
+
+def aniq_mos_modellar(katalog: dict[str, list[dict]], mijoz_matni: str, limit: int = 3) -> list[dict]:
+    """
+    Mijoz aytgan quvvat (kVt) va aylanish tezligiga (ob/min) katalogdan AYNAN mos dvigatellar.
+    AI parametrlarni boshqa modelga yopishtirib yubormasligi uchun mos model dasturda topiladi.
+    """
+    past = (mijoz_matni or "").lower()
+    kvtlar = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:kvt|квт|kwt|kw)\b", past)]
+    if not kvtlar:
+        return []
+    tezliklar = {int(x) for x in re.findall(r"\b(3000|1500|1000|750|600|500)\b", past)}
+    bolimlar = [b for b in _katalog_bolimlari_tanlash(past) if b in DVIGATEL_BOLIMLARI] or list(DVIGATEL_BOLIMLARI)
+    natija = []
+    for b in bolimlar:
+        for m in katalog.get(b, []):
+            if not any(abs(m["_kvt"] - k) < 0.01 for k in kvtlar):
+                continue
+            if tezliklar and _sinxron_tezlik(_model_tezligi(m)) not in tezliklar:
+                continue
+            natija.append(m)
+    return natija[:limit]
+
+
+# ---------- Fakt tekshiruvi: AI katalogda yo'q raqam, model yoki shartni o'ylab topmasin ----------
+
+_BIRLIKLI_SON = re.compile(
+    r"(?<![\w.,])(\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?)\s*"
+    r"(?:kvt|квт|kw\b|ob/min|об/мин|ob\.?/min|айл|aylan|a\b|а\b|amper|ампер|kg\b|кг\b|mm\b|мм\b|%|"
+    r"v\b|в\b|volt|вольт|m³|м³|m3\b|м3\b|n·m|н·м|nm\b|нм\b|hz\b|гц\b|mg/l|мг/л|metr|метр|m\b|м\b)",
+    re.IGNORECASE,
+)
+_SERIYA_MODEL = re.compile(
+    r"(?<![\w])(?:АИР|AIR|МТКН|MTKN|МТН|MTN|ВАО|VAO|ВА|VA|СДМ|SDM|СДН|SDN|СД|SD|ВДС|VDS|СТДМ|STDM|ЭЦВ|ECV)"
+    r"[\s-]?\d[\w\-/.]*(?:[\s-]\d[\w\-/.]*)?",
+)
+_SHART_REGEX = re.compile(
+    r"kafolat|кафолат|гарант|bepul\s+yetkaz|бепул\s+етказ|бесплатн\w*\s+доставк|"
+    r"(?:yetkaz|етказ|доставк|достав)\w*[^.!?\n]{0,40}?\d+\s*(?:kun|кун|дн|день|soat|соат|час)",
+    re.IGNORECASE,
+)
+_MENEJERGA_REGEX = re.compile(r"menejer|менеджер|менежер|aniqla|аниқла|уточн", re.IGNORECASE)
+
+
+def _sonlar_toplami(matn: str) -> set[float]:
+    """Matndagi barcha sonlar ('1 200' va '1,5' ham) - solishtirish uchun."""
+    toplam = set()
+    for t in re.findall(r"\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?", matn or ""):
+        for v in {t, re.split(r"[ \u00a0]", t)[-1], re.sub(r"[ \u00a0]", "", t)}:
+            try:
+                toplam.add(round(float(v.replace(",", ".")), 3))
+            except ValueError:
+                pass
+    return toplam
+
+
+def _model_faktlari(m: dict) -> set[float]:
+    # Butun tavsif emas (unda tasodifiy sonlar ko'p) - faqat xususiyatlar, nomi va qo'llanish matni
+    return _sonlar_toplami(" ".join([m["model"], m.get("nomi", ""), " ".join(map(str, m.get("xus", {}).values())),
+                                     qollanish_matni(m)]))
+
+
+def _gaplar(matn: str) -> list[str]:
+    # "2. Variant" kabi raqamli ro'yxat bandidan keyin gap bo'linmaydi
+    return [g.strip() for g in re.split(r"(?<=[^\d\s][.!?])[ \t]+|\n+", matn or "") if g.strip()]
+
+
+def fakt_xatolari(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str = "") -> list[str]:
+    """
+    AI javobidagi katalogga zid yoki o'ylab topilgan gaplar:
+    - tilga olingan modelga tegishli raqam (kVt, ob/min, A, kg, %, V, m³...) shu modelning katalogida yo'q;
+    - katalogda yo'q model nomi (mijozning o'zi aytmagan bo'lsa);
+    - kafolat yoki yetkazib berish muddati va'da qilingan (bilimlarda yo'q, menejerga yo'naltirilmagan).
+    """
+    mijoz_sonlari = _sonlar_toplami(mijoz_matni)
+    mijoz_kaliti = model_kaliti(mijoz_matni)
+    kalitlar = [model_kaliti(m["model"]) for m in _hamma_mahsulotlar(katalog)]
+    xatolar = []
+    joriy_model = None
+    for gap in _gaplar(javob):
+        topildi = topilgan_modellar(katalog, gap, limit=1)
+        if topildi:
+            joriy_model = topildi[0]
+        muammo = False
+        if gap.rstrip().endswith("?"):
+            continue  # savol fakt da'vo qilmaydi ("220/380 yoki 380/660 V kerakmi?")
+        # Model nomi shu gapning o'zida bo'lsa - raqamlar faqat shu modelniki bo'lishi shart (mijoz aytgan
+        # "1,5 kVt" boshqa modelga yopishtirilmasin); oldingi gapdagi model haqida bo'lsa - mijoz raqamlari ham mumkin
+        for t in _SERIYA_MODEL.finditer(gap):
+            k = model_kaliti(t.group(0).rstrip(".,-/"))
+            if len(k) >= 4 and re.search(r"\d", k) and k not in mijoz_kaliti \
+                    and not any(km.startswith(k) or k.startswith(km) for km in kalitlar):
+                muammo = True
+        if joriy_model is not None and not muammo:
+            faktlar = _model_faktlari(joriy_model) | (set() if topildi else mijoz_sonlari)
+            for t in _BIRLIKLI_SON.finditer(gap):
+                qiymatlar = _sonlar_toplami(t.group(1))
+                if qiymatlar and not qiymatlar & faktlar:
+                    muammo = True
+                    break
+        if not muammo and _SHART_REGEX.search(gap) and not _MENEJERGA_REGEX.search(gap):
+            muammo = True
+        if muammo:
+            xatolar.append(gap)
+    return xatolar
+
+
+_SHART_JAVOBI = {
+    "uz_latn": "Kafolat va yetkazib berish shartlarini menejerimiz aniq aytib beradi.",
+    "uz_cyrl": "Кафолат ва етказиб бериш шартларини менежеримиз аниқ айтиб беради.",
+    "ru": "Условия гарантии и доставки точно сообщит наш менеджер.",
+}
+_FAKT_SARLAVHA = {"uz_latn": "Katalog bo'yicha", "uz_cyrl": "Каталог бўйича", "ru": "По каталогу"}
+
+
+def faktlarni_tozalash(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str, til: str,
+                      mos_modellar: list[dict] = ()) -> str:
+    """
+    Tasdiqlanmagan gaplarni olib tashlaydi. Model tilga olingan bo'lsa, o'rniga uning katalogdagi
+    asosiy ma'lumoti qo'yiladi; kafolat/yetkazish va'dasi o'rniga - menejer aniqlab berishi haqida gap.
+    """
+    xatolar = fakt_xatolari(javob, katalog, mijoz_matni)
+    if not xatolar:
+        return javob
+    shart_bor, modellar, qolgan = False, [], javob
+    for gap in xatolar:
+        if _SHART_REGEX.search(gap):
+            shart_bor = True
+        modellar += [m for m in topilgan_modellar(katalog, gap, limit=2) if m not in modellar]
+        qolgan = qolgan.replace(gap, "", 1)
+    # Bo'shab qolgan qator va ortiqcha bo'shliqlar (asl formatlash - ro'yxat, qatorlar - saqlanadi)
+    qolgan = re.sub(r"[ \t]{2,}", " ", qolgan)
+    qolgan = re.sub(r"(?m)^[ \t]*(?:[-•*]|\d+[.)])?[ \t]*(?:\n|$)", "", qolgan).strip()
+    # Mijoz parametrlariga aniq mos model boshqa bo'lsa - noto'g'ri model o'rniga o'shani ko'rsatamiz
+    if mos_modellar and not any(m in mos_modellar for m in modellar):
+        modellar = list(mos_modellar)
+    sarlavha = _FAKT_SARLAVHA.get(til, _FAKT_SARLAVHA["uz_latn"])
+    qoshimcha = []
+    for m in modellar[:2]:
+        if m.get("_qator"):
+            qator = m["_qator"].split(" | ", 1)[-1]
+            if til == "ru":
+                qator = qator.replace("kVt", "кВт").replace("ob/min", "об/мин").replace("m³/soat", "м³/ч")
+            qoshimcha.append(f"{sarlavha}: {m['model']} — {qator}. {m['url']}")
+    if shart_bor:
+        qoshimcha.append(_SHART_JAVOBI.get(til, _SHART_JAVOBI["uz_latn"]))
+    if not qoshimcha:
+        return qolgan
+    # Qo'shimcha faktlar oxirgi savoldan oldin qo'yiladi (savol javob oxirida qolsin)
+    gaplar = _gaplar(qolgan)
+    if gaplar and gaplar[-1].endswith("?"):
+        boshi = qolgan[: qolgan.rfind(gaplar[-1])].rstrip()
+        return "\n".join(q for q in (boshi, *qoshimcha, gaplar[-1]) if q)
+    return "\n".join(q for q in (qolgan, *qoshimcha) if q)
 
 
 _RASM_SOROV = re.compile(
     r"rasm|rasim|surat|\bfoto|\bphoto|\bpic|\bimg|фото|фотк|расм|расим|сурат|картин|изображ|рисун|снимок|"
     r"ko['‘’`]?rinish|кўриниш|кориниш|как\s+выгляд|qanaqa\s+ko['‘’`]?rin|ko['‘’`]?rsat|кўрсат|покаж",
     re.IGNORECASE,
+)
+
+
+RASM_TAHLIL_KORSATMASI = (
+    "Bu rasmni mijoz elektr dvigatel/nasos sotuvchisiga Telegramda yubordi. Sotuvchi uchun ichki tavsif yoz "
+    "(mijozga murojaat qilma, salomlashma), o'zbek tilida (lotin), qisqa, markdown belgilarisiz: "
+    "1) rasmda nima bor (1 gap); 2) agar shildik (pasport plastinkasi), yozuv, jadval yoki hujjat bo'lsa - undagi "
+    "model, quvvat (kVt), aylanish (ob/min), kuchlanish (V), tok (A), IP, chastota va boshqa yozuv/raqamlarni AYNAN "
+    "ko'chir. Aniq o'qilmaganini '?' bilan belgila. Ko'rinmagan narsani o'ylab topma."
 )
 
 

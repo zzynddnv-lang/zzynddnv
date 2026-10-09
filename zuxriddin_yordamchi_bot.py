@@ -16,9 +16,11 @@ Ishga tushirish:
 """
 
 import asyncio
+import base64
 import csv
 import glob
 import html
+import io
 import json
 import logging
 import os
@@ -211,18 +213,18 @@ Vazifang: mahsulotlarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sot
 
 QOIDALAR:
 1. Mijoz yozgan til va yozuvda javob ber (o'zbek lotin / o'zbek kirill / rus).
-2. Faqat BILIMLARdagi faktlar. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - omborda borligini ombor tasdiqlaydi. Saytdagi 3 yo'nalishning birortasini "sotmaymiz" dema. O'zingcha hisoblab model tavsiya qilma.
+2. FAQAT BILIMLAR, KATALOG va TAFSILOTdagi faktlarni ayt. Har bir raqam (kVt, ob/min, A, kg, %, V, m³/soat, m) AYNAN o'sha modelning katalog qatoridan bo'lsin - bir modelning raqamini boshqasiga yozma. Ma'lumotlarda yo'q narsa so'ralsa (kafolat, yetkazish muddati, brend nomi, sertifikat, qoldiq...) - "bu bo'yicha aniq ma'lumotni menejerimiz beradi" de, O'YLAB TOPMA. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - omborda borligini ombor tasdiqlaydi. Saytdagi 3 yo'nalishning birortasini "sotmaymiz" dema. O'zingcha hisoblab model tavsiya qilma.
 3. {_narx_qoidasi()}
 4. FAOL SOTUVCHI BO'L, quruq so'roq qilma:
  - aniq ehtiyoj aytilmasa - 3 yo'nalishni va mos turlarni qisqa tanishtir, nima kerakligini so'ra;
  - parametr aytilsa (dvigatel: kVt, ob/min; nasos: sarf m³/soat, napor m; sim: diametr) - KATALOGdan mos modelni nomi va xususiyatlari bilan darhol taklif qil;
  - mexanizm yoki vazifa aytilsa (kran, konveyer, quduq, drenaj, shaxta, o'ram) - mos turni va foydasini ayt;
- - har javobda bitta foyda (original, muhandislik tanlovi, KPD/energiya tejash, to'xtab qolmaslik) va keyingi qadamga savol.
-5. Javob 2-4 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
+ - afzallik va qo'llanish sohasini FAQAT TAFSILOTdagi "QO'LLANILISHI VA AFZALLIKLARI" matnidan yoki BILIMLARdan ayt (mijoz tiliga o'girib), o'zingdan qo'shma; oxirida keyingi qadamga bitta savol.
+5. AVVAL mijozning savoliga TO'LIQ javob ber: u so'ragan HAR BIR narsaga (masalan, tok, vazn VA qayerda ishlatilishi) javob bo'lsin. Texnik ma'lumot so'ralsa - qisqa ro'yxat qilib yozish mumkin. Oddiy javob 2-5 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
 6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. Asosiy parametrlar va miqdor ma'lum bo'lsa narx_sorash=true.
 6b. Model va seriya nomlarini KATALOGDAGIDEK kirill harflarida yoz (АИР132М4У1, МТН 411-8, ЭЦВ 8-25-100, ПЭТВ-2) - hech qachon lotinga o'girma.
 6c. Texnik savolga TAFSILOT bo'limidagi ma'lumot bilan to'liq javob ber (tok, vazn, val, KPD...), kerak bo'lsa mahsulot sahifasi havolasini ber.
-7. Sen AI yordamchisan, odam ekanligingni da'vo qilma; "kimsiz?" desa - UMATIC ning AI savdo yordamchisi ekaningni ayt. Mijoz rasm so'rasa - katalog rasmi javobingdan keyin avtomatik yuboriladi (JORIY HOLATda ko'rsatiladi): "tizim" so'zini ishlatma, qisqa "mana, rasmi" mazmunida ayt. Mijoz yuborgan rasmni ko'ra olmaysan - u menejerga yuborilgan.
+7. Sen AI yordamchisan, odam ekanligingni da'vo qilma; "kimsiz?" desa - UMATIC ning AI savdo yordamchisi ekaningni ayt. Mijoz rasm so'rasa - katalog rasmi javobingdan keyin avtomatik yuboriladi (JORIY HOLATda ko'rsatiladi): "tizim" so'zini ishlatma, qisqa "mana, rasmi" mazmunida ayt. Mijoz rasm yuborsa - uning avtomatik tavsifi [Mijoz rasm yubordi ...] ichida beriladi: shildik ma'lumoti bo'lsa shu parametrlarga katalogdan mos model tavsiya qil. [Mijoz stiker yubordi ...] - stiker ma'nosiga mos qisqa, samimiy javob berib suhbatni davom ettir (👍 - rozilik, 🙏 - minnatdorchilik, 😂 - hazil).
 7a. "(Menejer yozdi)" bilan boshlangan xabarlarni jonli menejer yozgan: ularga zid gapirma, uning aytganlarini davom ettir, bu belgini o'zing yozma.
 8a. Har qanday savolga O'ZING to'liq javob ber (bilimlar va katalog asosida) va ehtiyojga qarab aniq mahsulot tavsiya qil. "Menejer siz bilan bog'lanadi" deb FAQAT narx, chegirma, omborda borligi yoki yetkazib berish so'ralganda ayt - butun suhbatda ko'pi bilan 1 marta. Texnik va umumiy savollarni menejerga yo'naltirma.
 9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
@@ -640,7 +642,15 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     katalog = sotuv.katalog_tanlash(KATALOG, mijoz_matni)
     # Mijoz (yoki bot oxirgi javobida) tilga olingan aniq modellar - to'liq texnik ma'lumot
     oxirgi_xabarlar = " ".join(m["content"] for m in tarix[-3:])
-    tafsilot = "\n".join(sotuv.tafsilot_matni(m) for m in sotuv.topilgan_modellar(KATALOG, oxirgi_xabarlar, limit=2))
+    tafsilot_modellari = sotuv.topilgan_modellar(KATALOG, oxirgi_xabarlar, limit=2)
+    # Mijoz aytgan kVt va ob/min ga AYNAN mos modellar dasturda topiladi (AI raqamlarni adashtirmasin)
+    mos = sotuv.aniq_mos_modellar(KATALOG, mijoz_matni, limit=2)
+    tafsilot_modellari += [m for m in mos if m not in tafsilot_modellari][: max(0, 3 - len(tafsilot_modellari))]
+    tafsilot = "\n".join(sotuv.tafsilot_matni(m, til) for m in tafsilot_modellari)
+    if mos and not tafsilot_modellari[:1] == mos[:1]:
+        holat = {**holat, "qoshimcha": list(holat.get("qoshimcha", [])) + [
+            "Mijoz parametrlariga katalogdan AYNAN mos: " + ", ".join(m["model"] for m in mos)
+            + ". Model tavsiya qilsang - shularni (TAFSILOTdagi raqamlar bilan) taklif qil."]}
     messages = (
         [{"role": "system", "content": tizim_korsatmasi(katalog, tafsilot)}]
         + tarix
@@ -657,6 +667,7 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
         natija, oxirgi_xato, hammasi_limit = await _modellarni_sinash(modellar, messages, til, taklif_bor, oldingilar)
         if natija is not None:
             natija["_birinchi"] = birinchi
+            natija["_mos"] = mos
             return natija
         if not hammasi_limit or urinish == 1:
             break
@@ -1674,18 +1685,72 @@ async def mediani_menejerga_yuborish(message: types.Message, turi: str):
             logging.warning("Mediani (%s) ga yuborib bo'lmadi: %s", target, e)
 
 
+RASM_MODELI = os.getenv("RASM_MODELI", "qwen/qwen3.8-27b")
+
+
+async def rasmni_tahlil_qilish(file_id: str) -> str:
+    """
+    Mijoz yuborgan rasmni ko'radigan model (Groq, Qwen) orqali matnga aylantiradi: nima tasvirlangan va
+    shildik/hujjat bo'lsa undagi yozuvlar. Ishlamasa - bo'sh qator (bot baribir javob beradi).
+    """
+    try:
+        fayl = await bot.get_file(file_id)
+        if fayl.file_size and fayl.file_size > 10 * 1024 * 1024:
+            return ""
+        xom = await bot.download_file(fayl.file_path)
+        jpeg = await asyncio.to_thread(_jpegga, xom.read() if hasattr(xom, "read") else xom)
+        if not jpeg:
+            return ""
+        resp = await groq_chat.chat.completions.create(
+            model=RASM_MODELI,
+            temperature=0.1,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": sotuv.RASM_TAHLIL_KORSATMASI},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
+            ]}],
+            **_model_parametrlari(RASM_MODELI),
+        )
+        return re.sub(r"\s+", " ", resp.choices[0].message.content or "").strip()[:700]
+    except Exception as e:
+        logging.warning("Rasmni tahlil qilib bo'lmadi: %s", e)
+        return ""
+
+
+def _jpegga(xom: bytes) -> bytes | None:
+    """Rasmni (jpg/png/webp) kichraytirib JPEG ga o'giradi - token va trafik tejaladi."""
+    try:
+        from PIL import Image
+        rasm = Image.open(io.BytesIO(xom)).convert("RGB")
+        rasm.thumbnail((1280, 1280))
+        chiqish = io.BytesIO()
+        rasm.save(chiqish, "JPEG", quality=85)
+        return chiqish.getvalue()
+    except Exception as e:
+        logging.warning("Rasmni JPEG ga o'girib bo'lmadi: %s", e)
+        return None
+
+
 async def xabar_matnini_olish(message: types.Message, is_business: bool) -> str | None:
-    """Xabar turini aniqlab matnga aylantiradi (ovoz - Whisper, rasm/hujjat - menejerga)."""
+    """Xabar turini aniqlab matnga aylantiradi (ovoz - Whisper, rasm - ko'ruvchi model, stiker - emoji)."""
     if message.text:
         return message.text.strip()
+    if message.sticker:
+        emoji = message.sticker.emoji or ""
+        return f"[Mijoz stiker yubordi {emoji}]".replace(" ]", "]")
     if message.contact:
         ism = f"{message.contact.first_name or ''} {message.contact.last_name or ''}".strip()
         return f"[Mijoz kontakt ulashdi] Ismi: {ism}, telefon: {message.contact.phone_number}"
     if message.photo or message.document:
-        turi = "rasm" if message.photo else "fayl"
+        rasmmi = bool(message.photo) or (message.document.mime_type or "").startswith("image/")
+        turi = "rasm" if rasmmi else "fayl"
         await mediani_menejerga_yuborish(message, turi)
         caption = f" Izohi: {message.caption.strip()}" if message.caption else ""
-        return f"[Mijoz {turi} yubordi (sen uni ko'ra olmaysan, u menejerga yuborildi).{caption}]"
+        if rasmmi:
+            file_id = message.photo[-1].file_id if message.photo else message.document.file_id
+            tavsif = await rasmni_tahlil_qilish(file_id)
+            if tavsif:
+                return f"[Mijoz rasm yubordi. Rasmda (avtomatik tahlil): {tavsif}]{caption}"
+        return f"[Mijoz {turi} yubordi (mazmunini o'qib bo'lmadi, u menejerga yuborildi).{caption}]"
     if message.location:
         return f"[Mijoz lokatsiya yubordi: {message.location.latitude}, {message.location.longitude}]"
 
@@ -1821,6 +1886,13 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
         javob = re.sub(r"^\s*\(Menejer yozdi\)\s*", "", natija["javob"])
         javob = sotuv.atamalarni_tuzatish(sotuv.model_nomlarini_tuzatish(javob, KATALOG))
+        # Katalogga zid raqam, yo'q model yoki kafolat/yetkazish va'dasi - mijozga bormaydi
+        mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
+        tozalangan = sotuv.faktlarni_tozalash(javob, KATALOG, mijoz_matni, til, natija.get("_mos") or [])
+        if tozalangan != javob:
+            logging.warning("Chat %s: AI javobida tasdiqlanmagan fakt olib tashlandi: %s", chat_id,
+                            sotuv.fakt_xatolari(javob, KATALOG, mijoz_matni))
+            javob = tozalangan or tmatn("narx_aniqlanadi", til)
         for poz in natija["mahsulotlar"]:  # PDF va CRM ga ham to'g'ri nom
             poz["nomi"] = sotuv.model_nomlarini_tuzatish(poz["nomi"], KATALOG)
             poz["parametrlar"] = sotuv.model_nomlarini_tuzatish(poz["parametrlar"], KATALOG)
