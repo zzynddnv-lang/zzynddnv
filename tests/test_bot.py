@@ -1400,6 +1400,56 @@ class XotiraVaIshoraTest(unittest.TestCase):
                          "Ro'yxat:\n- Vazni: 135 kg")
         self.assertEqual(sotuv.kesilganni_tozalash("Bu yaxshi dvigatel. U kranlar, lebyodkalar"), "Bu yaxshi dvigatel.")
         self.assertEqual(sotuv.kesilganni_tozalash("To'liq gap."), "To'liq gap.")
+    def test_render_tozalangandan_keyin_sheetsdan_tiklanadi(self):
+        karta = {"ism": "Jasur Karimov", "telefon": "+998901234567", "mahsulot": "МТН 211-6 (7,5 kVt) - 2 dona",
+                 "izoh": "Kran uchun dvigatel", "sessiya_soni": "2", "mijoz_ismi": "Jasur",
+                 "oldingi_suhbat": "Mijoz: МТН 211-6 dan 2 dona olaman", "yangilangan_vaqt": "2020-01-01 10:00"}
+        sorovlar = []
+
+        class Javob:
+            status = 200
+
+            async def text(self):
+                return json.dumps({"ok": True, "topildi": True, "karta": karta})
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+        class Sessiya:
+            def __init__(self, *a, **kw):
+                pass
+
+            def get(self, url, params=None, **kw):
+                sorovlar.append(params)
+                return Javob()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+        with mock.patch.dict(os.environ, {"GOOGLE_SHEET_WEBHOOK_URL": "https://script.google.com/x/exec"}), \
+                mock.patch.object(b.aiohttp, "ClientSession", Sessiya), \
+                mock.patch.object(b, "xotirani_sinxronlash_fonda", lambda *a, **kw: None):
+            self.yuborilgan.clear()
+            self._yoz("assalomu alaykum", chat_id=91)
+        self.assertEqual(sorovlar[0]["telegram_id"], "91")
+        self.assertEqual(sorovlar[0]["kalit"], b.SHEETS_KALIT)
+        self.assertTrue(b.SHEETS_KALIT)
+        meta = db.get_chat_meta(91)
+        self.assertEqual(meta["sessiya_soni"], 3)               # eski yozuv + yangi murojaat
+        self.assertEqual(meta["mijoz_ismi"], "Jasur")
+        self.assertIn("Jasur", self.yuborilgan[0])              # ismi bilan kutib oldi
+        self.assertIn("МТН 211-6", self.yuborilgan[0])          # oldingi qiziqishini esladi
+        self.assertEqual(db.get_lead(91)["telefon"], "+998901234567")
+
+    def test_sheets_ulanmagan_bolsa_tiklash_jim_otadi(self):
+        with mock.patch.dict(os.environ, {"GOOGLE_SHEET_WEBHOOK_URL": ""}):
+            self.assertFalse(asyncio.run(b.sheetsdan_tiklash(92, 92)))
 
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):

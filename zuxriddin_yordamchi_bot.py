@@ -19,6 +19,7 @@ import asyncio
 import base64
 import csv
 import glob
+import hashlib
 import html
 import io
 import json
@@ -58,6 +59,10 @@ from sotuv import matn as tmatn
 # =====================================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Google Sheets dan mijoz ma'lumotini o'qish kaliti (Apps Script birinchi so'rovda eslab qoladi).
+# Berilmasa - BOT_TOKEN dan hosil qilinadi (maxfiy va doimiy, alohida sozlash shart emas).
+SHEETS_KALIT = os.getenv("SHEETS_KALIT", "").strip() or (
+    hashlib.sha256(f"umatic-sheets:{BOT_TOKEN}".encode()).hexdigest()[:32] if BOT_TOKEN else "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 KOMPANIYA_NOMI = sotuv.KOMPANIYA_NOMI
 
@@ -866,12 +871,18 @@ def _sheets_matni(holat: bool | None) -> str:
 
 
 async def crmga_sinxronlash(chat_id: int) -> bool | None:
-    """Mijoz kartochkasini CSV va Google Sheetsga yuboradi."""
+    """Mijoz kartochkasini (va bot xotirasini) CSV va Google Sheetsga yuboradi."""
     lead = await asyncio.to_thread(db.get_lead, chat_id)
     if not lead:
         return None
     await csv_yangilash()
+    meta = await asyncio.to_thread(db.get_chat_meta, chat_id)
+    joriy = await asyncio.to_thread(db.joriy_suhbat_mazmuni, chat_id)
     return await google_sheetsga_yozish({
+        "kalit": SHEETS_KALIT,
+        "sessiya_soni": meta["sessiya_soni"] if meta else 1,
+        "mijoz_ismi": (meta["mijoz_ismi"] or "") if meta else "",
+        "oldingi_suhbat": joriy or ((meta["oldingi_suhbat"] or "") if meta else ""),
         "sana": lead["created_at"],
         "ism": lead["full_name"],
         "telefon": lead["telefon"] or "",
@@ -887,6 +898,69 @@ async def crmga_sinxronlash(chat_id: int) -> bool | None:
         "izoh": lead["xulosa"] or "",
         "chat_id": chat_id,
     })
+
+
+_SHEETS_SINX_VAQTI: dict[int, float] = {}
+
+
+def xotirani_sinxronlash_fonda(chat_id: int, majburiy: bool = False, oraliq: float = 120.0):
+    """Bot xotirasini Sheetsga fonda yuboradi (bir chat uchun ko'pi bilan 2 daqiqada bir marta)."""
+    if not os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip():
+        return
+    hozir = asyncio.get_running_loop().time()
+    if not majburiy and hozir - _SHEETS_SINX_VAQTI.get(chat_id, -1e9) < oraliq:
+        return
+    _SHEETS_SINX_VAQTI[chat_id] = hozir
+
+    async def ish():
+        try:
+            await crmga_sinxronlash(chat_id)
+        except Exception as e:
+            logging.warning("Xotirani Sheetsga yozib bo'lmadi (chat %s): %s", chat_id, e)
+
+    asyncio.create_task(ish())
+
+
+async def sheetsdan_tiklash(chat_id: int, mijoz_id: int) -> bool:
+    """
+    Bazada yo'q mijozni (Render qayta ishga tushgandan keyin) Google Sheets dan tiklaydi.
+    Qaytaradi: tiklandimi. Jadval ulanmagan yoki mijoz topilmasa - False (bot oddiy ishlayveradi).
+    """
+    url = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
+    if not url or not mijoz_id:
+        return False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params={"telegram_id": str(mijoz_id), "kalit": SHEETS_KALIT},
+                                   allow_redirects=True, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    return False
+                data = json.loads(await resp.text())
+    except Exception as e:
+        logging.warning("Sheetsdan mijozni tiklab bo'lmadi (%s): %s", mijoz_id, e)
+        return False
+    if not isinstance(data, dict) or not data.get("topildi") or not isinstance(data.get("karta"), dict):
+        return False
+    k = data["karta"]
+    try:
+        soni = int(float(k.get("sessiya_soni") or 1))
+    except ValueError:
+        soni = 1
+    # Oxirgi yangilanishdan beri 1 soatdan ko'p o'tgan bo'lsa - bu yangi murojaat
+    try:
+        oxirgi = datetime.strptime(str(k.get("yangilangan_vaqt", ""))[:16], "%Y-%m-%d %H:%M")
+        if (datetime.now() - oxirgi).total_seconds() > SESSIYA_DAQIQA * 60:
+            soni += 1
+    except ValueError:
+        soni += 1
+    await asyncio.to_thread(
+        db.mijozni_tiklash, chat_id, mijoz_id, soni, k.get("mijoz_ismi", ""), k.get("oldingi_suhbat", ""),
+        full_name=k.get("ism", ""), telefon=k.get("telefon", ""), username=k.get("username", ""),
+        telegram_id=mijoz_id, tashkilot=k.get("tashkilot", ""), lavozim=k.get("lavozim", ""),
+        mavzu=k.get("ehtiyoj", ""), mahsulot=k.get("mahsulot", ""), xulosa=k.get("izoh", ""),
+    )
+    logging.info("Chat %s: mijoz Google Sheets dan tiklandi (%s-murojaat).", chat_id, soni)
+    return True
 
 
 def lead_kartochkasi(lead, sarlavha: str) -> str:
@@ -1854,10 +1928,13 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         return
 
     async with chat_locks[chat_id]:
+        if await asyncio.to_thread(db.get_chat_meta, chat_id) is None:
+            await sheetsdan_tiklash(chat_id, message.from_user.id)
         oxirgi_vaqt = await asyncio.to_thread(db.get_last_message_time, chat_id)
         if oxirgi_vaqt and (datetime.now() - oxirgi_vaqt).total_seconds() > SESSIYA_DAQIQA * 60:
             logging.info("Chat %s: %s daqiqadan ko'p jimlik - yangi suhbat boshlanadi.", chat_id, SESSIYA_DAQIQA)
             await asyncio.to_thread(db.clear_chat_history, chat_id)
+            xotirani_sinxronlash_fonda(chat_id, majburiy=True)
 
         tarix = await asyncio.to_thread(db.get_chat_history, chat_id, MAX_TARIX)
         boshlangan = asyncio.get_running_loop().time()
@@ -2018,8 +2095,11 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
 
 
 async def crm_yangilash_xavfsiz(chat_id, mijoz, natija, holat, xabar_matni, bcid, ega_id):
+    yangi_ism = False
     if sotuv.ism_togrimi(natija["mijoz"]["ism"]):
         try:
+            meta = await asyncio.to_thread(db.get_chat_meta, chat_id)
+            yangi_ism = not meta or meta["mijoz_ismi"] != natija["mijoz"]["ism"].strip()[:60]
             await asyncio.to_thread(db.mijoz_ismini_saqlash, chat_id, natija["mijoz"]["ism"])
         except Exception as e:
             logging.warning("Mijoz ismini saqlab bo'lmadi (chat %s): %s", chat_id, e)
@@ -2027,6 +2107,8 @@ async def crm_yangilash_xavfsiz(chat_id, mijoz, natija, holat, xabar_matni, bcid
         await crm_yangilash(chat_id, mijoz, natija, holat, xabar_matni, bcid, ega_id)
     except Exception as e:
         logging.exception("CRM yangilashda xatolik (chat %s): %s", chat_id, e)
+    # Bot xotirasi (suhbat mazmuni, ism) Sheetsda ham bo'lsin - Render qayta ishga tushsa ham saqlanadi
+    xotirani_sinxronlash_fonda(chat_id, majburiy=yangi_ism)
 
 
 @dp.business_message()

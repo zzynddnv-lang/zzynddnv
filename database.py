@@ -232,6 +232,25 @@ def delete_last_message(chat_id: int):
 OLDINGI_SUHBAT_XABARLARI = 8
 
 
+def _suhbat_mazmuni(cursor, chat_id: int) -> str:
+    """Joriy suhbatning oxirgi xabarlari qisqa ko'rinishda (bot xotirasi uchun)."""
+    cursor.execute(
+        "SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+        (chat_id, OLDINGI_SUHBAT_XABARLARI),
+    )
+    oxirgilar = list(reversed(cursor.fetchall()))
+    mazmun = "\n".join(
+        f"{'Mijoz' if r['role'] == 'user' else 'Bot'}: {re.sub(r'\s+', ' ', r['content'])[:220]}"
+        for r in oxirgilar if not r["content"].startswith("[Mijozga taqdimot")
+    )
+    return mazmun[-1800:]
+
+
+def joriy_suhbat_mazmuni(chat_id: int) -> str:
+    with get_db() as conn:
+        return _suhbat_mazmuni(conn.cursor(), chat_id)
+
+
 def clear_chat_history(chat_id: int):
     """
     Yangi suhbat (sessiya) boshlaydi: xabarlar tarixi tozalanadi, lekin oldingi suhbatning qisqa
@@ -241,19 +260,11 @@ def clear_chat_history(chat_id: int):
     vaqt = _hozir()
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
-            (chat_id, OLDINGI_SUHBAT_XABARLARI),
-        )
-        oxirgilar = list(reversed(cursor.fetchall()))
-        if oxirgilar:
-            mazmun = "\n".join(
-                f"{'Mijoz' if r['role'] == 'user' else 'Bot'}: {re.sub(r'\s+', ' ', r['content'])[:220]}"
-                for r in oxirgilar if not r["content"].startswith("[Mijozga taqdimot")
-            )
+        mazmun = _suhbat_mazmuni(cursor, chat_id)
+        if mazmun:
             cursor.execute(
                 "UPDATE chats SET oldingi_suhbat = ?, sessiya_soni = COALESCE(sessiya_soni, 1) + 1 WHERE chat_id = ?",
-                (mazmun[-1800:], chat_id),
+                (mazmun, chat_id),
             )
         cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
         cursor.execute("""
@@ -457,6 +468,27 @@ def get_chat_meta(chat_id: int) -> Optional[sqlite3.Row]:
             (chat_id,),
         )
         return cursor.fetchone()
+
+
+def mijozni_tiklash(chat_id: int, mijoz_id: int, sessiya_soni: int, mijoz_ismi: str, oldingi_suhbat: str,
+                    **lead_maydonlari):
+    """
+    Baza tozalangandan keyin (Render qayta ishga tushganda) mijozni Google Sheets dagi kartochkasidan tiklaydi:
+    murojaatlar soni, o'zi aytgan ismi, oldingi suhbati va CRM kartochkasi.
+    """
+    vaqt = _hozir()
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO chats (chat_id, is_completed, mijoz_id, sessiya_soni, mijoz_ismi, oldingi_suhbat, created_at, updated_at)
+            VALUES (?, 0, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                sessiya_soni = excluded.sessiya_soni,
+                mijoz_ismi = COALESCE(excluded.mijoz_ismi, mijoz_ismi),
+                oldingi_suhbat = COALESCE(excluded.oldingi_suhbat, oldingi_suhbat)
+        """, (chat_id, mijoz_id, max(1, int(sessiya_soni or 1)), mijoz_ismi or None, oldingi_suhbat or None, vaqt, vaqt))
+    toldirilgan = {k: v for k, v in lead_maydonlari.items() if k in LEAD_MAYDONLARI and v not in (None, "")}
+    if toldirilgan:
+        upsert_lead(chat_id, **toldirilgan)
 
 
 def mijoz_ismini_saqlash(chat_id: int, ism: str):

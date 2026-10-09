@@ -12,6 +12,11 @@
  *
  * Har bir murojaatchi (Telegram ID) uchun bitta qator saqlanadi:
  * yangilangan dosye kelganda mavjud qator yangilanadi, dublikat qo'shilmaydi.
+ *
+ * Jadval botning DOIMIY XOTIRASI ham: Render qayta ishga tushib bazasi tozalansa, bot qaytib kelgan
+ * mijozni (ismi, murojaatlar soni, oldingi suhbati) shu jadvaldan tiklaydi. Mijoz ma'lumotini o'qish
+ * uchun maxfiy kalit kerak: bot birinchi so'rovida yuborgan kalit skript sozlamalariga saqlanadi va
+ * keyin faqat shu kalit bilan o'qiladi.
  */
 
 const VARAQ_NOMI = "CRM";
@@ -39,6 +44,9 @@ const USTUNLAR = [
   ["summa", "Taklif summasi (so'm)"],
   ["izoh", "Xulosa"],
   ["yangilangan_vaqt", "Oxirgi yangilanish"],
+  ["sessiya_soni", "Murojaatlar soni"],
+  ["mijoz_ismi", "Ism (mijoz o'zi aytgan)"],
+  ["oldingi_suhbat", "Oldingi suhbat (bot xotirasi)"],
 ];
 
 function varaqniOlish_() {
@@ -47,25 +55,70 @@ function varaqniOlish_() {
   if (!sheet) {
     sheet = ss.insertSheet(VARAQ_NOMI);
   }
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(USTUNLAR.map(function (u) { return u[1]; }));
+  // Sarlavhalar har doim to'liq (yangi ustunlar qo'shilsa ham)
+  const sarlavhalar = USTUNLAR.map(function (u) { return u[1]; });
+  const birinchi = sheet.getRange(1, 1, 1, sarlavhalar.length);
+  if (birinchi.getValues()[0].join("|") !== sarlavhalar.join("|")) {
+    birinchi.setValues([sarlavhalar]).setFontWeight("bold");
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, USTUNLAR.length).setFontWeight("bold");
   }
   return sheet;
 }
 
+function javob_(obyekt) {
+  return ContentService.createTextOutput(JSON.stringify(obyekt)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function qatorniTopish_(sheet, telegramId) {
+  const idUstuni = USTUNLAR.findIndex(function (u) { return u[0] === "telegram_id"; }) + 1;
+  const oxirgi = sheet.getLastRow();
+  if (oxirgi < 2 || !telegramId) {
+    return -1;
+  }
+  const idlar = sheet.getRange(2, idUstuni, oxirgi - 1, 1).getValues();
+  for (let i = idlar.length - 1; i >= 0; i--) {
+    if (String(idlar[i][0]) === String(telegramId)) {
+      return i + 2;
+    }
+  }
+  return -1;
+}
+
+function kalitTogrimi_(kalit) {
+  if (!kalit) {
+    return false;
+  }
+  const sozlamalar = PropertiesService.getScriptProperties();
+  const saqlangan = sozlamalar.getProperty("BOT_KALITI");
+  if (!saqlangan) {
+    sozlamalar.setProperty("BOT_KALITI", String(kalit));  // birinchi so'rov - kalit eslab qolinadi
+    return true;
+  }
+  return saqlangan === String(kalit);
+}
+
 /**
- * Holat tekshiruvi: havolani brauzerda ochsangiz yoki bot /stats da tekshirsa -
- * {"ok": true, ...} qaytadi. Jadvalga hech narsa yozilmaydi.
+ * - Parametrsiz: holat tekshiruvi ({"ok": true}) - bot /stats da shunday tekshiradi.
+ * - ?telegram_id=...&kalit=...: shu mijozning kartochkasi (bot xotirasini tiklash uchun).
  */
-function doGet() {
-  const ss = jadvalniOlish_();
-  return ContentService.createTextOutput(JSON.stringify({
-    ok: true,
-    jadval: ss ? ss.getName() : "",
-    varaq: VARAQ_NOMI,
-  })).setMimeType(ContentService.MimeType.JSON);
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (!p.telegram_id) {
+    const ss = jadvalniOlish_();
+    return javob_({ ok: true, jadval: ss ? ss.getName() : "", varaq: VARAQ_NOMI });
+  }
+  if (!kalitTogrimi_(p.kalit)) {
+    return javob_({ ok: false, error: "kalit noto'g'ri" });
+  }
+  const sheet = varaqniOlish_();
+  const qator = qatorniTopish_(sheet, p.telegram_id);
+  if (qator < 0) {
+    return javob_({ ok: true, topildi: false });
+  }
+  const qiymatlar = sheet.getRange(qator, 1, 1, USTUNLAR.length).getValues()[0];
+  const karta = {};
+  USTUNLAR.forEach(function (u, i) { karta[u[0]] = qiymatlar[i] === "" ? "" : String(qiymatlar[i]); });
+  return javob_({ ok: true, topildi: true, karta: karta });
 }
 
 function doPost(e) {
@@ -73,6 +126,9 @@ function doPost(e) {
   lock.waitLock(20000);
   try {
     const karta = JSON.parse(e.postData.contents);
+    if (karta.kalit !== undefined && !kalitTogrimi_(karta.kalit)) {
+      return javob_({ ok: false, error: "kalit noto'g'ri" });
+    }
     karta.yangilangan_vaqt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm");
 
     const sheet = varaqniOlish_();
@@ -81,33 +137,22 @@ function doPost(e) {
       return qiymat === undefined || qiymat === null ? "" : String(qiymat);
     });
 
-    // Telegram ID bo'yicha mavjud qatorni qidirish
-    const idUstuni = USTUNLAR.findIndex(function (u) { return u[0] === "telegram_id"; }) + 1;
-    let topilganQator = -1;
-    const oxirgi = sheet.getLastRow();
-    if (oxirgi > 1 && karta.telegram_id) {
-      const idlar = sheet.getRange(2, idUstuni, oxirgi - 1, 1).getValues();
-      for (let i = idlar.length - 1; i >= 0; i--) {
-        if (String(idlar[i][0]) === String(karta.telegram_id)) {
-          topilganQator = i + 2;
-          break;
+    const topilganQator = qatorniTopish_(sheet, karta.telegram_id);
+    if (topilganQator > 0) {
+      // Bo'sh kelgan maydon jadvaldagi mavjud ma'lumotni o'chirmaydi; birinchi murojaat sanasi saqlanadi
+      const eski = sheet.getRange(topilganQator, 1, 1, USTUNLAR.length).getValues()[0];
+      for (let i = 0; i < qator.length; i++) {
+        if (qator[i] === "" || i === 0) {
+          qator[i] = eski[i] === "" ? qator[i] : eski[i];
         }
       }
-    }
-
-    if (topilganQator > 0) {
-      // Birinchi murojaat sanasini saqlab qolamiz
-      qator[0] = sheet.getRange(topilganQator, 1).getValue() || qator[0];
       sheet.getRange(topilganQator, 1, 1, qator.length).setValues([qator]);
     } else {
       sheet.appendRow(qator);
     }
-
-    return ContentService.createTextOutput(JSON.stringify({ ok: true }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return javob_({ ok: true });
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return javob_({ ok: false, error: String(err) });
   } finally {
     lock.releaseLock();
   }
