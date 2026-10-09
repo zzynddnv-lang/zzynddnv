@@ -503,7 +503,7 @@ def get_yakunlangan_suhbatlar(daqiqa: int) -> List[sqlite3.Row]:
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT c.chat_id, c.mijoz_id, c.owner_last_active, m.oxirgi, m.mijoz_xabarlari, m.jami,
+            SELECT c.chat_id, c.mijoz_id, c.owner_last_active, c.business_connection_id, m.oxirgi, m.mijoz_xabarlari, m.jami,
                    (SELECT content FROM messages WHERE chat_id = c.chat_id AND role = 'user'
                     ORDER BY id DESC LIMIT 1) AS oxirgi_mijoz_xabari
             FROM chats c
