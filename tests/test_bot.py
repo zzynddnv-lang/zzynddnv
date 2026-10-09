@@ -1443,15 +1443,11 @@ class FaktTekshiruviTest(unittest.TestCase):
         self.assertIn("Yana АИР999Z9 ham bor.", xatolar)
 
     def test_savol_variantlari_va_royxat_saqlanadi(self):
-        javob = ("АИР90L6У1: 1,5 кВт, 1000 об/мин, IP54. Саволлар:
-1. Қандай муҳитда ўрнатасиз?
-"
-                 "2. Кучланиш 220/380 В ёки 380/660 В керакми?
-3. Ток 9 А бўлади.")
+        javob = ("АИР90L6У1: 1,5 кВт, 1000 об/мин, IP54. Саволлар:\n1. Қандай муҳитда ўрнатасиз?\n"
+                 "2. Кучланиш 220/380 В ёки 380/660 В керакми?\n3. Ток 9 А бўлади.")
         self.assertEqual(sotuv.fakt_xatolari(javob, self.K), ["3. Ток 9 А бўлади."])
         tozalangan = sotuv.faktlarni_tozalash(javob, self.K, "", "uz_cyrl")
-        self.assertIn("
-2. Кучланиш 220/380 В ёки 380/660 В керакми?", tozalangan)
+        self.assertIn("\n2. Кучланиш 220/380 В ёки 380/660 В керакми?", tozalangan)
         self.assertNotIn("9 А", tozalangan)
 
     def test_kafolat_oylab_topilmaydi(self):
