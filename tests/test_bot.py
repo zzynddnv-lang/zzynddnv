@@ -131,7 +131,7 @@ class AiNatijaTest(unittest.TestCase):
 
     def test_notogri_turlar_tozalanadi(self):
         n = sotuv.ai_natijasini_ajratish(ai_json(
-            til="en", bosqich="nomalum", narx_sorash="true",
+            til="xitoy", bosqich="nomalum", narx_sorash="true",
             mahsulotlar=[{"nomi": "", "miqdor": 2}, {"nomi": "Nasos", "miqdor": "5 dona"}, "xato"],
         ))
         self.assertEqual(n["til"], "")
@@ -1092,11 +1092,42 @@ class TestchiXatolariTest(unittest.TestCase):
         for matn in ("Узини таништирмаябти", "Сухбат давомида тил узгартиромади", "Техник маълумот ва расм сураганимда жавоб бермади"):
             self.assertEqual(sotuv.tilni_aniqlash(matn), "uz_cyrl", matn)
 
+    def test_har_xabar_oz_tilida(self):
+        self._yoz("Hello, I need an electric motor")
+        self.assertEqual(self.ai_tillari[-1], "en")
+        self.assertIn("AI sales assistant", b.tanishtiruv_matni("en"))      # inglizcha tanishtiruv
+        self.assertIn("AI sales assistant", b.tanishtiruv_matni("boshqa"))
+        self._yoz("Merhaba, pompa fiyatı nedir?")
+        self.assertEqual(self.ai_tillari[-1], "boshqa")
+        self._yoz("Нужен насос")
+        self.assertEqual(self.ai_tillari[-1], "ru")
+        self._yoz("rahmat, nasos kerak")
+        self.assertEqual(self.ai_tillari[-1], "uz_latn")
+
+    def test_ingliz_tili_aniqlanadi(self):
+        for matn, til in (("Do you have pumps?", "en"), ("What is the price of this motor?", "en"),
+                          ("menga bu mator haqida toliq malumot ber", "uz_latn"), ("kran uchun dvigatel kerak", "uz_latn"),
+                          ("zdravstvuyte, est nasos?", "ru"), ("Сәлеметсіз бе, қозғалтқыш керек", "boshqa"),
+                          ("مرحبا أحتاج محرك", "boshqa")):
+            self.assertEqual(sotuv.tilni_aniqlash(matn, "uz_latn"), til, matn)
+        self.assertEqual(sotuv.tilni_aniqlash("МТН 211-6", "en"), "en")      # model nomi tilni o'zgartirmaydi
+        self.assertEqual(sotuv.til_sorovi("please answer in English"), "en")
+        self.assertFalse(sotuv.yozuv_mosmi("Bu dvigatel kran uchun juda mos keladi, sizga kerakmi?", "en"))
+        self.assertTrue(sotuv.yozuv_mosmi("This motor is suitable for cranes, do you need it?", "en"))
+        self.assertEqual(sotuv.matn("salom", "boshqa"), "Hello!")
+        pdf = taklif_pdf.taklif_pdf(7, "en", POZ, "John", "", "", "Supply")
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertTrue(taklif_pdf.fayl_nomi(7, "en").startswith("UMATIC_Commercial_offer"))
+
     def test_tilni_soraganda_ozgaradi_va_saqlanadi(self):
         self._yoz("salom, dvigatel kerak")
         self._yoz("rus tilida gapiring")
-        self._yoz("11 kvt dvigatel kerak")  # lotinda yozdi, lekin rus tilini tanlagan
+        self._yoz("Нужен двигатель на 11 кВт")
         self.assertEqual(self.ai_tillari, ["uz_latn", "ru", "ru"])
+        self._yoz("11 kvt dvigatel kerak")  # endi o'zbekcha yozdi - o'zbekcha javob
+        self.assertEqual(self.ai_tillari[-1], "uz_latn")
+        self._yoz("nuzhen dvigatel 11 kvt, skolko stoit?")  # ruscha, lotin harflarida
+        self.assertEqual(self.ai_tillari[-1], "ru")
         self._yoz("ўзбекча ёзинг")
         self.assertEqual(self.ai_tillari[-1], "uz_cyrl")
 

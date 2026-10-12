@@ -25,7 +25,15 @@ TAKLIF_MUDDATI_KUN = int(os.getenv("TAKLIF_MUDDATI_KUN", "3"))
 # Narx haqida izoh, masalan: "QQS bilan". Bo'sh bo'lsa ko'rsatilmaydi.
 NARX_IZOHI = os.getenv("NARX_IZOHI", "").strip()
 
-TILLAR = ("uz_latn", "uz_cyrl", "ru")
+# en - ingliz; boshqa - yuqoridagilardan boshqa til (AI mijoz yozgan tilda javob beradi, tayyor matnlar inglizcha)
+TILLAR = ("uz_latn", "uz_cyrl", "ru", "en", "boshqa")
+
+
+def til_kaliti(til: str) -> str:
+    """Tayyor matnlar uchun til: 'boshqa' tillarda - inglizcha, noma'lum bo'lsa - o'zbek (lotin)."""
+    if til == "boshqa":
+        return "en"
+    return til if til in ("uz_latn", "uz_cyrl", "ru", "en") else "uz_latn"
 BOSQICHLAR = (
     "yangi", "qiziqish", "ehtiyoj_aniqlanmoqda", "narx_sorovi",
     "taklif_berildi", "muzokara", "kelishildi", "rad_etdi",
@@ -253,6 +261,35 @@ _RU_SOZ_REGEX = re.compile(
 _RU_QOSHIMCHA = re.compile(r"[а-я]{2,}(ый|ий|ой|ая|яя|ое|ее|ые|ие|ть|ться|ешь|ет|ют|ит|ят|ого|его|ому|ему|ых|их|ами|ями|ов|ев)\b")
 
 
+_EN_SOZ_REGEX = re.compile(
+    r"\b(the|is|are|a|an|i|you|we|need|needs|want|do|does|have|has|what|which|how|much|many|price|prices|cost|"
+    r"please|hello|hi|hey|can|could|would|will|for|with|of|to|in|on|my|your|our|thanks|thank|available|send|"
+    r"show|photo|picture|about|information|details|motor|pump|wire|where|when|why|and|or|it|this|that|these|"
+    r"looking|buy|order|delivery|good|morning|afternoon|evening|yes|no|ok|okay|sir|from|me|us|any|there|"
+    r"specifications|specs|power|speed|catalog|catalogue|company|interested)\b"
+)
+_UZ_LOTIN_SOZ_REGEX = re.compile(
+    r"(?<![\w'‘’`])(va|bu|shu|men|menga|siz|sizga|biz|bizga|ular|nima|nega|qanday|qanaqa|qancha|qachon|qayerda|"
+    r"kerak|kerakmi|bor|bormi|yo['‘’`]?q|nechta|narx|narxi|salom|assalomu|alaykum|rahmat|raxmat|uchun|bilan|ham|"
+    r"emas|lekin|yoki|haqida|ma['‘’`]?lumot|rasm|rasmi|rasmini|dvigatel|dvigatelni|nasos|nasosni|to['‘’`]?liq|"
+    r"ber|bering|yozing|ayting|yuboring|xop|xo['‘’`]?p|yaxshi|aka|opa|olaman|kerakli|qilib|bo['‘’`]?ladi|"
+    r"bo['‘’`]?lsa|tushunarli|mator|motorni)(?![\w'‘’`])"
+)
+_UZ_LOTIN_QOSHIMCHA = re.compile(
+    r"[a-z]{2,}(lar|larni|larga|ni|ga|da|dan|dagi|mi|chi|miz|ingiz|ngiz|man|mizni|yapti|yapsiz|moqchi|moqda|"
+    r"gan|ganda|sizlar|ishni|ish|adi|aydi|maydi|madi|lik|siz)\b"
+)
+# Rus tili lotin harflarida ("nuzhen dvigatel, skolko stoit?") - ruscha javob beriladi
+_RU_TRANSLIT_REGEX = re.compile(
+    r"\b(nuzhen|nuzhna|nuzhno|nuzhny|skolko|stoit|tsena|cena|pozhaluysta|pozhalujsta|zdravstvuyte|zdravstvujte|"
+    r"privet|spasibo|kakoy|kakaya|kakie|mozhno|est|mne|vam|vas|ne|eto|chto|kak|gde|kogda|dvigatelya|dvigateli|"
+    r"nasosa|moshchnost|moshnost|dobryy|dobriy|den|khochu|hochu|podskazhite|nalichii|nalichie|zakaz|kupit)\b"
+)
+# Boshqa tillarning o'ziga xos harflari (turk, qozoq, tojik, nemis, fransuz...): o'zbek yoki rus emas
+_BOSHQA_LOTIN = set("çşğıöüâêîôûäéèàñßãõ")
+_BOSHQA_KIRILL = set("әөұүһіңӣӯҷ")
+
+
 def _uz_kirill_ballari(past: str) -> tuple[int, int]:
     """(o'zbek balli, rus balli) - kirill matn uchun."""
     uz = 3 * sum(1 for c in past if c in "ўқғҳ") + 2 * len(_UZ_KIRILL_SOZ_REGEX.findall(past)) + len(_UZ_KIRILL_QOSHIMCHA.findall(past))
@@ -260,18 +297,69 @@ def _uz_kirill_ballari(past: str) -> tuple[int, int]:
     return uz, ru
 
 
+_BOSHQA_TIL_BELGILARI = (
+    # (til nomi, harflar yoki so'zlar naqshi) - "boshqa" tilni AI ga aniq nomi bilan aytish uchun
+    ("turk tili (Türkçe)", r"[ığş]|\b(merhaba|nedir|fiyat\w*|var\s+mı|teşekkür\w*|lütfen|ne\s+kadar)\b"),
+    ("qozoq tili (Қазақша)", r"[әұһі]|\b(сәлем\w*|қажет|бағасы)\b"),
+    ("qirg'iz tili (Кыргызча)", r"\b(салам|керек\s+эле|канча\s+турат|кандай)\b|ң.*ө|ө.*ң"),
+    ("tojik tili (Тоҷикӣ)", r"[ӣӯҷ]|\b(салом|чанд|лозим)\b"),
+    ("arab yoki fors tili", r"[\u0600-\u06ff]"),
+    ("xitoy tili (中文)", r"[\u4e00-\u9fff]"),
+    ("koreys tili (한국어)", r"[\uac00-\ud7af]"),
+    ("nemis tili (Deutsch)", r"[äöüß]|\b(ich|brauche|einen|guten\s+tag|bitte|danke)\b"),
+    ("fransuz tili (Français)", r"[éèêàç]|\b(bonjour|je|besoin|merci|prix)\b"),
+    ("ispan tili (Español)", r"[ñ¿¡]|\b(hola|necesito|precio|gracias)\b"),
+)
+
+
+def boshqa_til_nomi(matn: str) -> str:
+    """'boshqa' deb aniqlangan xabarning taxminiy tili (AI ga ko'rsatma uchun); topilmasa - bo'sh."""
+    past = (matn or "").lower()
+    for nom, naqsh in _BOSHQA_TIL_BELGILARI:
+        if re.search(naqsh, past):
+            return nom
+    return ""
+
+
+def _lotin_tili(matn: str, oldingi: str) -> str:
+    """Lotin yozuvidagi matn: o'zbek, ingliz yoki boshqa til."""
+    past = matn.lower()
+    uz = 2 * len(_UZ_LOTIN_SOZ_REGEX.findall(past)) + len(_UZ_LOTIN_QOSHIMCHA.findall(past)) \
+        + 2 * len(re.findall(r"[og]['‘’`ʻ]", past)) + past.count("q") + past.count("x")
+    en = 2 * len(_EN_SOZ_REGEX.findall(past)) + len(re.findall(r"\b\w+(?:ing|tion|ed|ly)\b", past))
+    ru = 2 * len(_RU_TRANSLIT_REGEX.findall(past))
+    if any(c in _BOSHQA_LOTIN for c in past) and uz < 2:
+        return "boshqa"
+    if ru > uz and ru > en and ru >= 4:
+        return "ru"
+    if en > uz and en >= 2:
+        return "boshqa" if re.search(r"\b(ich|brauche|einen|bitte|danke|bonjour|je|besoin|merci|hola|necesito|gracias)\b",
+                                     past) else "en"
+    if uz == 0 and en == 0 and oldingi in ("en", "boshqa"):
+        return oldingi  # "ok", "МТН 211-6" kabi - avvalgi til davom etadi
+    return "uz_latn"
+
+
 def tilni_aniqlash(matn: str, oldingi: str = "") -> str:
     """
-    Matn yozilgan tilni aniqlaydi: uz_latn, uz_cyrl yoki ru.
-    Kirill matnda o'zbek va rus so'zlari/qo'shimchalari solishtiriladi ("таништирмаябти" - o'zbekcha).
-    Matnda harf juda kam bo'lsa ("ok", "5", emoji) - oldingi aniqlangan til qoldiriladi.
+    HAR BIR xabar qaysi tilda yozilganini aniqlaydi: uz_latn, uz_cyrl, ru, en yoki boshqa.
+    Kirill matnda o'zbek va rus so'zlari/qo'shimchalari solishtiriladi ("таништирмаябти" - o'zbekcha),
+    lotin matnda - o'zbek va ingliz. Matnda harf juda kam bo'lsa ("ok", "5", emoji) - oldingi til qoldiriladi.
     """
-    matn = matn or ""
+    # Model nomlari (МТН 211-6, ЭЦВ 8-25-100) tilni ko'rsatmaydi - hisobga olinmaydi
+    matn = _SERIYA_MODEL.sub(" ", matn or "")
+    matn = _TEXNIK_REGEX.sub(" ", matn) if len(matn) > 20 else matn
     kirill, lotin = _harf_sonlari(matn)
+    boshqa_yozuv = sum(1 for c in matn if c.isalpha() and not c.isascii() and not ("Ѐ" <= c <= "ӿ")
+                       and c.lower() not in _BOSHQA_LOTIN and c not in "‘’ʻ")
+    if boshqa_yozuv > kirill + lotin and boshqa_yozuv >= 3:
+        return "boshqa"  # arab, xitoy, gruzin va h.k. yozuvlar
     if kirill + lotin < 3 and oldingi in TILLAR:
         return oldingi
     if kirill <= lotin:
-        return "uz_latn"
+        return _lotin_tili(matn, oldingi)
+    if any(c in _BOSHQA_KIRILL for c in matn.lower()):
+        return "boshqa"  # qozoq, tojik, qirg'iz
     uz, ru = _uz_kirill_ballari(matn.lower())
     if uz > ru:
         return "uz_cyrl"
@@ -284,6 +372,7 @@ _TIL_SOROVLARI = (
     ("uz_cyrl", r"kirill(da|cha)?\b|кирилл|кирил(да|ча)"),
     ("uz_latn", r"lotin(da|cha)?\b|латин|лотин(да|ча)"),
     ("ru", r"rus\s*(tilida|tiliga|cha)|ruscha|по-?русски|на\s+русском|русск(ий|ом)\s+язык|русча|рус\s+тил"),
+    ("en", r"ingliz\s*(tilida|tiliga|cha)|inglizcha|in\s+english|english\s+please|speak\s+english|по-?английски|на\s+английском|инглиз(ча|\s+тилида)"),
     ("uz", r"o['‘’`]?zbek\s*(tilida|tiliga|cha)|o['‘’`]?zbekcha|по-?узбекски|на\s+узбекском|узбекск|ўзбек\s*(тилида|ча)|узбек\s*(тилида|ча)|ўзбекча|узбекча"),
 )
 
@@ -291,7 +380,7 @@ _TIL_SOROVLARI = (
 def til_sorovi(matn: str) -> str | None:
     """
     Mijoz tilni o'zgartirishni so'radimi? ("rus tilida gapiring", "по-узбекски", "kirillda yozing")
-    Qaytaradi: uz_latn / uz_cyrl / ru yoki None.
+    Qaytaradi: uz_latn / uz_cyrl / ru / en yoki None.
     """
     past = (matn or "").lower()
     for til, naqsh in _TIL_SOROVLARI:
@@ -308,12 +397,18 @@ _TEXNIK_REGEX = re.compile(r"\b(?:[A-Z]{2,}\w*|k?[VW]t?|kVt|IP\d*|Ex|m³|ob/min|
 
 
 def yozuv_mosmi(javob: str, til: str) -> bool:
-    """Javob kutilgan yozuvda (lotin yoki kirill) yozilganini tekshiradi."""
-    kirill, lotin = _harf_sonlari(_TEXNIK_REGEX.sub(" ", javob or ""))
+    """Javob kutilgan tilda/yozuvda (lotin yoki kirill; ingliz - o'zbekcha emas) yozilganini tekshiradi."""
+    tozalangan = _TEXNIK_REGEX.sub(" ", javob or "")
+    kirill, lotin = _harf_sonlari(tozalangan)
     if kirill + lotin < 10:
         return True
+    if til == "boshqa":
+        # Boshqa tildagi (turk, qozoq...) xabarga o'zbek yoki rus tilida javob - noto'g'ri
+        return tilni_aniqlash(javob, "boshqa") in ("boshqa", "en")
+    if til == "en":
+        return lotin >= kirill * 2 and _lotin_tili(tozalangan, "en") != "uz_latn"
     if til == "uz_latn":
-        return lotin >= kirill * 2
+        return lotin >= kirill * 2 and _lotin_tili(tozalangan, "uz_latn") != "en"
     return kirill >= lotin * 2
 
 
@@ -602,11 +697,37 @@ _MATNLAR = {
         "taklif_predmeti": "Поставка оборудования и материалов ({soni} поз.)",
         "mavjudlik_tekshirilmoqda": "Проверю наличие на складе и скоро отправлю коммерческое предложение.",
     },
+    "en": {
+        "sarlavha": "📄 COMMERCIAL OFFER No.{id}",
+        "qator": "{n}. {nomi}{param} — {sotiladi} {birlik} × {narx} = {summa} UZS",
+        "qisman": "   (requested {soralgan} {birlik}, {sotiladi} {birlik} in stock)",
+        "yoq": "{n}. {nomi}{param} — currently out of stock",
+        "jami": "💰 Total: {jami} UZS",
+        "tolov_toliq": "💳 Payment: 100% prepayment",
+        "tolov_qisman": "💳 Payment: {foiz}% prepayment ({oldindan} UZS), remaining {qfoiz}% ({qolgan} UZS) — before the goods leave the warehouse",
+        "yetkazish": "🚚 Delivery: items in stock — within 1–3 days",
+        "muddat": "⏳ The offer is valid for {kun} days",
+        "izoh": "📝 {izoh}",
+        "savol": "Shall we place the order? For the invoice we will need your company name and tax ID (INN).",
+        "hech_yoq": "Unfortunately, the requested items are currently out of stock. Our manager will contact you shortly with an alternative or a lead time for a made-to-order delivery.",
+        "kutish": "I'll check the price and stock availability and send them to you shortly.",
+        "narx_aniqlanadi": "I'll check the price and availability in the warehouse. Could you specify which item and what quantity you need?",
+        "ai_xato": "Your message has been received. Our manager will reply shortly.",
+        "salom": "Hello!",
+        "start": "Hello! Welcome to the {kompaniya} sales department. I'll help you choose an electric motor. What power and speed do you need?",
+        "taklif_izoh": "📄 Commercial offer {raqam}",
+        "qaytish": "Hello{ism}! 👋 Great to hear from you again. I'm the AI sales assistant of UMATIC.{oldingi} How can I help you today?",
+        "qaytish_oldingi": " Last time you were interested in {mahsulot}.",
+        "qisqa_tanishtiruv": "Hello! 👋 I'm the AI sales assistant of UMATIC. I can answer your questions about electric motors, pump units and electrical insulation materials, and send specifications and photos.",
+        "taklif_tayyorlanmoqda": "I'll send you the commercial offer now; our manager will contact you about the price.",
+        "taklif_predmeti": "Supply of equipment and materials ({soni} items)",
+        "mavjudlik_tekshirilmoqda": "I'll check stock availability and send you a commercial offer shortly.",
+    },
 }
 
 
 def matn(kalit: str, til: str) -> str:
-    return _MATNLAR.get(til if til in _MATNLAR else "uz_latn")[kalit]
+    return _MATNLAR[til_kaliti(til)][kalit]
 
 
 def taklif_matni(sorov_id: int, pozitsiyalar: list[dict], narxlar: list[dict], til: str, izoh: str = "") -> tuple[str, int]:
@@ -661,7 +782,8 @@ def tolov_sharti_matni() -> str:
 
 _SALOM_REGEX = re.compile(
     r"^\s*(va\s*alaykum\s*(as)?salom|ва\s*алайкум\s*(ас)?салом|assalomu\s+alaykum|ассалому\s+алайкум|"
-    r"здравствуйте|добрый\s+(день|вечер|утро)|доброе\s+утро|привет|salom|салом|hello)(?!\w)[!.,\s]*",
+    r"здравствуйте|добрый\s+(день|вечер|утро)|доброе\s+утро|привет|salom|салом|hello|hi|hey|"
+    r"good\s+(morning|afternoon|evening))(?!\w)[!.,\s]*",
     re.IGNORECASE,
 )
 
@@ -741,7 +863,7 @@ _GURUH_KALITLARI = (
     (r"\bnasos|\bнасос|\bpump", NASOS_BOLIMLARI),
     (r"izolyats|изоляц|изолятс", IZOLYATSIYA_BOLIMLARI),
 )
-MAX_KATALOG_QATOR = 25
+MAX_KATALOG_QATOR = 15  # Groq bepul tarifi: so'rov 7000 tokendan oshmasin
 
 
 def _son(matn) -> float:
@@ -1015,15 +1137,15 @@ _QOLLANISH_KALIT = re.compile(r"предназнач|применя|исполь
 
 
 def _xus_nomi(kalit: str, til: str) -> str:
-    if til == "ru":
-        return kalit
+    if til in ("ru", "en", "boshqa"):
+        return kalit  # AI mijoz tiliga o'giradi
     for naqsh, lotin, kirill in _XUS_NOMLARI:
         if re.search(naqsh, kalit, re.IGNORECASE):
             return kirill if til == "uz_cyrl" else lotin
     return kalit
 
 
-def qollanish_matni(m: dict, n: int = 650) -> str:
+def qollanish_matni(m: dict, n: int = 420) -> str:
     """
     Katalog tavsifidan mahsulotning QO'LLANILISHI va AFZALLIKLARI (umatic.uz matni, texnik jadvalsiz).
     AI afzallik va qo'llanish sohasini o'ylab topmasligi uchun aynan shu matn beriladi.
@@ -1044,7 +1166,7 @@ def qollanish_matni(m: dict, n: int = 650) -> str:
 
 def tafsilot_matni(m: dict, til: str = "ru") -> str:
     """Aniq model uchun to'liq texnik ma'lumot, qo'llanilishi va afzalliklari (faqat katalogdagi faktlar)."""
-    xus = "; ".join(f"{_xus_nomi(k, til)}: {v}" for k, v in list(m.get("xus", {}).items())[:16])
+    xus = "; ".join(f"{_xus_nomi(k, til)}: {v}" for k, v in list(m.get("xus", {}).items())[:13])
     qollanish = qollanish_matni(m)
     return (f"{m['model']} ({m['nomi']}) — {xus}."
             + (f" [Qo'llanilishi va afzalliklari - saytdan, faqat shuni MIJOZ TILIGA O'GIRIB ayt]: {qollanish}"
@@ -1198,8 +1320,9 @@ _SHART_JAVOBI = {
     "uz_latn": "Kafolat va yetkazib berish shartlarini menejerimiz aniq aytib beradi.",
     "uz_cyrl": "Кафолат ва етказиб бериш шартларини менежеримиз аниқ айтиб беради.",
     "ru": "Условия гарантии и доставки точно сообщит наш менеджер.",
+    "en": "Our manager will give you the exact warranty and delivery terms.",
 }
-_FAKT_SARLAVHA = {"uz_latn": "Katalog bo'yicha", "uz_cyrl": "Каталог бўйича", "ru": "По каталогу"}
+_FAKT_SARLAVHA = {"uz_latn": "Katalog bo'yicha", "uz_cyrl": "Каталог бўйича", "ru": "По каталогу", "en": "Per catalog"}
 
 
 def faktlarni_tozalash(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str, til: str,
@@ -1223,18 +1346,20 @@ def faktlarni_tozalash(javob: str, katalog: dict[str, list[dict]], mijoz_matni: 
     # Mijoz parametrlariga aniq mos model boshqa bo'lsa - noto'g'ri model o'rniga o'shani ko'rsatamiz
     if mos_modellar and not any(m in mos_modellar for m in modellar):
         modellar = list(mos_modellar)
-    sarlavha = _FAKT_SARLAVHA.get(til, _FAKT_SARLAVHA["uz_latn"])
+    sarlavha = _FAKT_SARLAVHA[til_kaliti(til)]
     qoshimcha = []
     for m in modellar[:2]:
         if m.get("_qator"):
             qator = m["_qator"].split(" | ", 1)[-1]
             if til == "ru":
                 qator = qator.replace("kVt", "кВт").replace("ob/min", "об/мин").replace("m³/soat", "м³/ч")
+            elif til_kaliti(til) == "en":
+                qator = qator.replace("kVt", "kW").replace("ob/min", "rpm").replace("m³/soat", "m³/h").replace("napor", "head")
             qoshimcha.append(f"{sarlavha}: {m['model']} — {qator}. {m['url']}")
     if shart_bor:
-        qoshimcha.append(_SHART_JAVOBI.get(til, _SHART_JAVOBI["uz_latn"]))
+        qoshimcha.append(_SHART_JAVOBI[til_kaliti(til)])
     if not qoshimcha:
-        return qolgan or _KONTAKT_YOPISH.get(til, _KONTAKT_YOPISH["uz_latn"])
+        return qolgan or _KONTAKT_YOPISH[til_kaliti(til)]
     # Qo'shimcha faktlar oxirgi savoldan oldin qo'yiladi (savol javob oxirida qolsin)
     gaplar = _gaplar(qolgan)
     if gaplar and gaplar[-1].endswith("?"):
@@ -1285,6 +1410,7 @@ _KONTAKT_YOPISH = {
     "uz_latn": "Tushunarli! Yana savollaringiz bo'lsa, bemalol yozing.",
     "uz_cyrl": "Тушунарли! Яна саволларингиз бўлса, бемалол ёзинг.",
     "ru": "Понял! Если будут ещё вопросы — пишите.",
+    "en": "Got it! If you have any more questions, feel free to write.",
 }
 
 
@@ -1295,7 +1421,7 @@ def kontakt_takrorini_olib_tashlash(javob: str, oldin_soralgan: bool, til: str) 
     qolgan = [g for g in _gaplar(javob) if not _KONTAKT_SOROV.search(g)]
     if len(qolgan) == len(_gaplar(javob)):
         return javob
-    return " ".join(qolgan).strip() or _KONTAKT_YOPISH.get(til, _KONTAKT_YOPISH["uz_latn"])
+    return " ".join(qolgan).strip() or _KONTAKT_YOPISH[til_kaliti(til)]
 
 
 _HAVOLA_REGEX = re.compile(r"https?://(?:www\.)?umatic\.uz[^\s)»\"'<>]*")
@@ -1425,6 +1551,8 @@ _ZAXIRA_MATNLAR = {
                 "Сизга мос двигателни танлашим учун қувват (кВт), айланиш тезлиги (об/мин) ва двигател қайси механизмда ишлашини ёзинг."),
     "ru": ("Подходящие модели из нашего каталога:", "Какая из них вам подходит и сколько нужно?",
            "Чтобы подобрать двигатель, напишите мощность (кВт), частоту вращения (об/мин) и для какого механизма он нужен."),
+    "en": ("Suitable models from our catalog:", "Which one suits you and how many do you need?",
+           "To choose the right motor, please send the power (kW), speed (rpm) and the machine it will drive."),
 }
 
 
@@ -1433,7 +1561,7 @@ def zaxira_javob(til: str, katalog: str) -> str:
     AI vaqtincha ishlamay qolganda ham mijozga FOYDALI javob (menejerga yo'naltirmasdan):
     so'ralgan quvvatga mos katalog modellari yoki tanlash uchun kerakli parametrlar.
     """
-    bosh, savol, umumiy = _ZAXIRA_MATNLAR.get(til, _ZAXIRA_MATNLAR["uz_latn"])
+    bosh, savol, umumiy = _ZAXIRA_MATNLAR[til_kaliti(til)]
     modellar = [q[2:] for q in (katalog or "").splitlines() if q.startswith("- ")][:3]
     if not modellar:
         return umumiy
@@ -1515,7 +1643,7 @@ _SALOM_SOZLARI = {
     "yaxshimisiz", "qalaysiz", "qalesiz", "xayrli", "kun", "tong", "kech", "hayrli",
     "ассалому", "ассалом", "алайкум", "алейкум", "салом", "салам", "ака", "опа", "яхшимисиз", "қалайсиз",
     "здравствуйте", "здравствуй", "привет", "добрый", "доброе", "день", "вечер", "утро", "здрасте",
-    "hello", "hi", "hey", "/start", "start",
+    "hello", "hi", "hey", "/start", "start", "good", "morning", "afternoon", "evening", "there",
 }
 
 

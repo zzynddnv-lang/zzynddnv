@@ -104,12 +104,47 @@ MATNLAR = {
         "hamkorlik": "Будем рады долгосрочному и взаимовыгодному сотрудничеству.",
         "imzo": "С уважением,<br/>Юсуфбоев Бегзод<br/>Руководитель отдела продаж",
     },
+    "en": {
+        "kompaniya": "UMATIC LLC (joint venture)",
+        "rekvizit": "TIN 311152304  •  acc. 20208000007034472001 (UZS)  •  MFO 01198",
+        "footer": "“UMATIC” MChJ QK  |  TIN 311152304  |  acc. 20208000007034472001 (UZS)  |  MFO 01198",
+        "raqam": "Ref. No.",
+        "sana": "Date:",
+        "kimga": "To:",
+        "aloqa": "Contact:",
+        "sarlavha": "COMMERCIAL OFFER",
+        "tagsarlavha": "for the supply of goods / equipment",
+        "hurmatli": "Dear {ism},",
+        "hurmatli_umumiy": "Dear Customer,",
+        "kirish": (
+            "UMATIC LLC thanks you for your interest in our company and invites you to consider cooperation "
+            "on the supply of equipment and materials. We are ready to prepare a solution that matches your technical "
+            "requirements, budget and project timeline."
+        ),
+        "predmet": "Subject of the offer:",
+        "shartlar": "COMMERCIAL TERMS",
+        "ustunlar": ["No.", "Goods / service", "Qty", "Price"],
+        "ustunlar_mavjud": ["No.", "Goods / service", "Qty", "In stock", "Price"],
+        "bor": "{n} {birlik} available",
+        "yoq": "not available yet",
+        "narx": "On request",
+        "izoh": "* Price and availability are provided separately based on warehouse data.",
+        "izoh_mavjud": "* Availability confirmed by the warehouse. Price is provided separately.",
+        "yakun": (
+            "If needed, we are ready to promptly clarify the technical details, prepare a specification "
+            "and offer the best terms for your project."
+        ),
+        "hamkorlik": "We look forward to long-term and mutually beneficial cooperation.",
+        "imzo": "Best regards,<br/>Begzod Yusufboyev<br/>Head of Sales",
+    },
 }
 
 
 def pdf_tili(til: str) -> str:
-    """Mijoz tili bo'yicha shablon: rus - RU, o'zbek (lotin va kirill) - UZ."""
-    return "ru" if til == "ru" else "uz"
+    """Mijoz tili bo'yicha shablon: rus - RU, ingliz va boshqa tillar - EN, o'zbek (lotin va kirill) - UZ."""
+    if til == "ru":
+        return "ru"
+    return "en" if til in ("en", "boshqa") else "uz"
 
 
 def taklif_raqami(sorov_id: int) -> str:
@@ -278,5 +313,5 @@ def taklif_pdf(
 
 
 def fayl_nomi(sorov_id: int, til: str) -> str:
-    prefiks = "Kommercheskoe_predlozhenie" if pdf_tili(til) == "ru" else "Tijorat_taklifi"
+    prefiks = {"ru": "Kommercheskoe_predlozhenie", "en": "Commercial_offer"}.get(pdf_tili(til), "Tijorat_taklifi")
     return f"UMATIC_{prefiks}_{taklif_raqami(sorov_id)}.pdf"

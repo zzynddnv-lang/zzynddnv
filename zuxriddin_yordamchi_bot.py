@@ -116,7 +116,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LEADLAR_FAYLI = os.getenv("CSV_PATH") or os.path.join(BASE_DIR, "leadlar.csv")
 BILIMLAR_PAPKASI = os.getenv("BILIMLAR_PAPKASI") or os.path.join(BASE_DIR, "bilimlar")
 
-MAX_TARIX = 10                                                   # AI ga beriladigan oxirgi xabarlar soni
+MAX_TARIX = 7                                                   # AI ga beriladigan oxirgi xabarlar soni
 # Suhbatda shuncha daqiqa hech kim yozmasa - suhbat tugagan: keyingi xabarda bot qaytadan o'zini tanishtiradi
 # va boshidan boshlaydi (eski suhbat tarixi va eski takliflar AI ga ko'rsatilmaydi; CRM saqlanadi)
 SESSIYA_DAQIQA = int(os.getenv("SESSIYA_DAQIQA", "60"))
@@ -203,7 +203,7 @@ def tanishtiruv_matni(til: str) -> str:
     Mijozning birinchi xabariga yuboriladigan tayyor taqdimot (kompaniya + mahsulotlar + chaqiriq).
     AI ga bog'liq emas - har doim to'liq va to'g'ri chiqadi. Tahrirlash: bilimlar/tanishtiruv/<til>.txt
     """
-    for t in (til, "uz_latn"):
+    for t in (sotuv.til_kaliti(til), "uz_latn"):
         yol = os.path.join(BILIMLAR_PAPKASI, "tanishtiruv", f"{t}.txt")
         if os.path.exists(yol):
             with open(yol, encoding="utf-8") as f:
@@ -219,7 +219,7 @@ def tizim_korsatmasi(katalog: str = "", tafsilot: str = "") -> str:
 Vazifang: mahsulotlarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sotuvga olib borish, CRM uchun ma'lumot yig'ish.
 
 QOIDALAR:
-1. Mijoz yozgan til va yozuvda javob ber (o'zbek lotin / o'zbek kirill / rus).
+1. HAR BIR javobni mijozning OXIRGI xabari qaysi tilda yozilgan bo'lsa, o'sha tilda yoz (o'zbek lotin / o'zbek kirill / rus / ingliz / boshqa til). Mijoz tilni almashtirsa - sen ham darhol almashtir. Til JORIY HOLATda ko'rsatiladi.
 2. FAQAT BILIMLAR, KATALOG va TAFSILOTdagi faktlarni ayt. Har bir raqam (kVt, ob/min, A, kg, %, V, m³/soat, m) AYNAN o'sha modelning katalog qatoridan bo'lsin - bir modelning raqamini boshqasiga yozma. Ma'lumotlarda yo'q narsa so'ralsa (kafolat, yetkazish muddati, brend nomi, sertifikat, qoldiq...) - "bu bo'yicha aniq ma'lumotni menejerimiz beradi" de, O'YLAB TOPMA. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - omborda borligini ombor tasdiqlaydi. Saytdagi 3 yo'nalishning birortasini "sotmaymiz" dema. O'zingcha hisoblab model tavsiya qilma.
 3. {_narx_qoidasi()}
 4. FAOL SOTUVCHI BO'L, quruq so'roq qilma:
@@ -288,6 +288,13 @@ def holat_matni(holat: dict, birinchi: bool, til: str = "uz_latn") -> str:
     qatorlar.append(
         f"- MIJOZ TILI: {TIL_NOMLARI.get(til, til)}. \"javob\" matnini FAQAT shu tilda va yozuvda yoz, \"til\" = \"{til}\"."
     )
+    if til == "boshqa" and holat.get("mijoz_xabari"):
+        nom = sotuv.boshqa_til_nomi(holat["mijoz_xabari"])
+        qatorlar.append(
+            f"- Mijozning oxirgi xabari: «{holat['mijoz_xabari'][:200]}»"
+            + (f" - bu {nom}" if nom else "")
+            + ". Javobni AYNAN shu tilda yoz, o'zbek yoki rus tilida EMAS (bu tilni bilmasang - ingliz tilida)."
+        )
     qatorlar.append("- Bu suhbatdagi BIRINCHI javob." if birinchi else "- Suhbat davom etmoqda, salomlashma.")
     faol = holat.get("faol")
     if faol:
@@ -412,7 +419,8 @@ class EgaFilter(Filter):
 
 PHONE_REGEX = re.compile(r'(\+?998[\s-]?\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}|(?:\b[389]\d[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b))')
 
-TIL_NOMLARI = {"uz_latn": "O'zbek (lotin)", "uz_cyrl": "O'zbek (kirill)", "ru": "Rus"}
+TIL_NOMLARI = {"uz_latn": "O'zbek (lotin)", "uz_cyrl": "O'zbek (kirill)", "ru": "Rus", "en": "Ingliz (English)",
+               "boshqa": "mijozning oxirgi xabari yozilgan til"}
 BOSQICH_NOMLARI = {
     "yangi": "🆕 Yangi", "qiziqish": "👀 Qiziqish", "ehtiyoj_aniqlanmoqda": "🔍 Ehtiyoj aniqlanmoqda",
     "narx_sorovi": "💰 Narx so'rovi", "taklif_berildi": "📄 Taklif berildi", "muzokara": "🤝 Muzokara",
@@ -672,7 +680,7 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
             + ". Model tavsiya qilsang - shularni (TAFSILOTdagi raqamlar bilan) taklif qil."]}
     messages = (
         [{"role": "system", "content": tizim_korsatmasi(katalog, tafsilot)}]
-        + tarix
+        + [{**m, "content": m["content"][:600]} if m.get("role") == "assistant" else m for m in tarix]
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
     modellar = list(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR))
@@ -1590,7 +1598,8 @@ async def start_komandasi(message: types.Message):
     if not ega:
         if message.chat.type != "private":
             return
-        til = "ru" if (user.language_code or "").startswith("ru") else "uz_latn"
+        kod = user.language_code or ""
+        til = "ru" if kod.startswith("ru") else "en" if kod.startswith("en") else "uz_latn"
         salom = tanishtiruv_matni(til)
         await asyncio.to_thread(db.save_chat_meta, message.chat.id, user.id, None, til)
         await asyncio.to_thread(db.add_message, message.chat.id, "assistant", TAQDIMOT_BELGISI)
@@ -1944,14 +1953,17 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         # Mijoz tilini dastur aniqlaydi (AI ga ishonib qolinmaydi): javob va taklif shu tilda bo'ladi
         meta = await asyncio.to_thread(db.get_chat_meta, chat_id)
         sorangan_til = sotuv.til_sorovi(xabar_matni)
+        aniqlangan = sotuv.tilni_aniqlash(xabar_matni, meta["til"] if meta else "")
         if sorangan_til:
-            # Mijoz tilni o'zi tanladi - keyingi xabarlarda ham shu tilda (u boshqa tilda yozsa ham)
+            # Mijoz tilni o'zi so'radi ("ruscha yozing", "kirillda") - shu xabarga o'sha tilda javob
             await asyncio.to_thread(db.til_tanlovini_saqlash, chat_id, sorangan_til)
             til = sorangan_til
-        elif meta and meta["til_tanlov"]:
+        elif meta and meta["til_tanlov"] and meta["til_tanlov"].startswith("uz") and aniqlangan.startswith("uz"):
+            # O'zbekcha yozayotgan mijoz so'ragan yozuv (lotin/kirill) saqlanadi
             til = meta["til_tanlov"]
         else:
-            til = sotuv.tilni_aniqlash(xabar_matni, meta["til"] if meta else "")
+            # Har bir xabar o'z tilida: mijoz qaysi tilda yozsa - o'sha tilda javob
+            til = aniqlangan
 
         # Mijoz bot xabariga (masalan, model rasmiga) javoban yozgan bo'lsa - o'sha xabar ham kontekstga kiradi
         iqtibos = iqtibos_matni(message)
@@ -1992,6 +2004,7 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         holat = await asyncio.to_thread(suhbat_holati, chat_id)
         boshlangan = asyncio.get_running_loop().time()
         holat["qoshimcha"] = doimiy_mijoz_korsatmasi(meta, lead, tarix)
+        holat["mijoz_xabari"] = xabar_matni
         # "bu motor haqida" - qaysi model ekanini dastur aniqlaydi (bot qayta so'rab o'tirmasin)
         if not sotuv.topilgan_modellar(KATALOG, tarix_matni, limit=1) and sotuv.ishora_bormi(xabar_matni):
             ishora = sotuv.oxirgi_korsatilgan_model(KATALOG, tarix[:-1])
@@ -2030,6 +2043,9 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             zaxira = sotuv.zaxira_javob(til, sotuv.katalog_tanlash(KATALOG, mijoz_matni))
             if await mijozga_yuborish(chat_id, bcid, zaxira) is None:
                 await asyncio.to_thread(db.add_message, chat_id, "assistant", zaxira)
+            # Mijoz rasm so'ragan bo'lsa - AI ishlamasa ham rasm yuboriladi
+            for m in rasm_modellari:
+                await rasm_yuborish(chat_id, bcid, m, til)
             if await asyncio.to_thread(db.menejer_chaqirish_mumkinmi, chat_id, 30):
                 u = message.from_user
                 await egalarga_yuborish(
