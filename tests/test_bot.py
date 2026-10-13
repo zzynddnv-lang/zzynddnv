@@ -1119,6 +1119,44 @@ class TestchiXatolariTest(unittest.TestCase):
         self.assertTrue(pdf.startswith(b"%PDF"))
         self.assertTrue(taklif_pdf.fayl_nomi(7, "en").startswith("UMATIC_Commercial_offer"))
 
+    def test_telefon_soralsa_ai_siz_darhol_javob(self):
+        self._yoz("telefon raqamingiz qanaqa?")
+        self.assertEqual(self.ai_tillari, [])                               # AI chaqirilmadi
+        self.assertTrue(any("+998888482222" in x[1] for x in self.xabarlar))
+        self._yoz("Какой у вас номер телефона?")
+        self.assertIn("Наш номер телефона: +998888482222", self.xabarlar[-1][1])
+
+    def test_ai_ishlamasa_soralgan_mahsulot_kartochkasi(self):
+        async def ishlamaydi(*a, **kw):
+            raise RuntimeError("429 rate_limit")
+
+        with mock.patch.object(b, "ai_javob", ishlamaydi), \
+                mock.patch.object(b, "egalarga_yuborish", mock.AsyncMock()):
+            self._yoz("АИР132М4У1 haqida malumot bering")
+        javob = self.xabarlar[-1][1]
+        self.assertIn("📦 АИР132М4У1", javob)
+        self.assertIn("11,0 kVt", javob)
+        self.assertIn("umatic.uz/magazin/product/elektrodvigatel-air132m4u1", javob)
+
+    def test_bilimlardan_kerakli_bolim(self):
+        bilim = b.BILIMLAR or b.bilimlarni_yuklash()
+        nasos = sotuv.bilimlar_tanlash(bilim, "quduq uchun nasos 25 kub")
+        self.assertIn("# 2. Nasos", nasos)
+        self.assertNotIn("# 1. Elektr dvigatellar", nasos)
+        self.assertIn("# Sotuv", nasos)
+        self.assertEqual(sotuv.bilimlar_tanlash(bilim, "salom"), bilim)
+
+    def test_bolingan_havola_tuzatiladi(self):
+        javob = ("ЭЦВ 8-25-100. Batafsil: https://umatic.uz/magazin/product/elektronasosnyj-agregat-ecv "
+                 "8-25-100-11-kvt-3000-ob/min\nQancha dona kerak?")
+        self.assertEqual(sotuv.havolalarni_tuzatish(javob, b.KATALOG),
+                         "ЭЦВ 8-25-100. Batafsil: https://umatic.uz/magazin/product/elektronasosnyj-agregat-ecv-8-25-100-11-kvt-3000-ob/min"
+                         "\nQancha dona kerak?")
+
+    def test_havola_oxirgi_modelga_tuzatiladi(self):
+        javob = "АИР132М4У1 - 11 kVt, 1460 ob/min, 380/660 V, IP55. Batafsil: https://umatic.uz/magazin/product/air132"
+        self.assertIn("elektrodvigatel-air132m4u1", sotuv.havolalarni_tuzatish(javob, b.KATALOG))
+
     def test_tilni_soraganda_ozgaradi_va_saqlanadi(self):
         self._yoz("salom, dvigatel kerak")
         self._yoz("rus tilida gapiring")
@@ -1711,6 +1749,52 @@ class FaktTekshiruviTest(unittest.TestCase):
                  "va МТН 211-6 (7,5 kVt, 1000 ob/min, KPD 82%) mos keladi.")
         self.assertEqual(sotuv.fakt_xatolari(javob, self.K), [])
         self.assertTrue(sotuv.fakt_xatolari("МТН 112-6 (5 kVt), МТН 311-8 (11 kVt).", self.K))
+
+    def test_soralgan_mahsulot_aniq_topiladi(self):
+        mos = lambda q: [m["model"] for m in sotuv.aniq_mos_modellar(self.K, q)]
+        self.assertEqual(mos("quduq uchun nasos kerak 25 kub soat napor 100 metr"), ["ЭЦВ 8-25-100"])
+        self.assertEqual(mos("16 m3 140 metr"), ["ЭЦВ 8-16-140"])
+        self.assertEqual(mos("emal sim 0,5 mm kerak"), ["ПЭТВ-2 0,50 мм"])
+        self.assertIn("АИР100L4У1", mos("4 kVt 1500 ob/min"))
+
+    def test_javobda_faqat_soralgan_mahsulot(self):
+        javob = "АИР100L4У1 — 4 kVt, 1500 ob/min, IP55. Shuningdek ВА 100L4 ham bor: portlashdan himoyalangan. Qaysi mexanizm uchun?"
+        kerakli = [m for m in sotuv._hamma_mahsulotlar(self.K) if m["model"] == "АИР100L4У1"]
+        natija = sotuv.boshqa_mahsulotlarni_olib_tashlash(javob, self.K, kerakli)
+        self.assertNotIn("ВА 100L4", natija)
+        self.assertIn("АИР100L4У1 — 4 kVt", natija)
+        self.assertEqual(sotuv.boshqa_mahsulotlarni_olib_tashlash(javob, self.K, []), javob)  # aniq so'ralmagan
+
+    def test_kompaniya_telefoni(self):
+        self.assertEqual(sotuv.KOMPANIYA_TELEFONI, "+998888482222")
+        for savol in ("telefon raqamingiz qanaqa?", "nomeringizni bering", "Какой у вас номер телефона?",
+                      "What is your phone number?", "qanday bog'lansam bo'ladi"):
+            self.assertTrue(sotuv.telefon_soraldimi(savol), savol)
+        for gap in ("mening raqamim +998901234567", "telefon raqamimni yozaymi?", "dvigatel kerak"):
+            self.assertFalse(sotuv.telefon_soraldimi(gap), gap)
+        self.assertEqual(sotuv.telefonni_qoshish("Biz bilan bog'laning: +998 (88) 848-22-22."),
+                         "Biz bilan bog'laning: +998888482222.")
+        self.assertTrue(sotuv.telefonni_qoshish("Menejerimiz bilan bog'laning.").endswith("📞 +998888482222"))
+
+    def test_raqam_bilan_tugagan_gap_ajratiladi(self):
+        self.assertEqual(sotuv._gaplar("Savollar:\n1. Qanday?\n2. Kuchlanish 220 V. Yana gap. IP55. Oxiri"),
+                         ["Savollar:", "1. Qanday?", "2. Kuchlanish 220 V.", "Yana gap.", "IP55.", "Oxiri"])
+
+    def test_joriy_savoldagi_mahsulot_ustun(self):
+        if not b.KATALOG:
+            b.bilimlarni_yuklash()
+        tarix = [{"role": "user", "content": "quduq uchun nasos kerak, 25 kub soatiga, napor 100 metr"},
+                 {"role": "assistant", "content": "ЭЦВ 8-25-100 mos keladi."},
+                 {"role": "user", "content": "ПЭТВ-2 0,5 mm sim bormi?"}]
+        olingan = {}
+
+        async def soxta_sorov(model, messages):
+            olingan["tizim"] = messages[0]["content"]
+            return sotuv.ai_natijasini_ajratish(ai_json(javob="ПЭТВ-2 0,50 мм katalogimizda bor."))
+
+        with mock.patch.object(b, "_groq_sorov", soxta_sorov):
+            asyncio.run(b.ai_javob(tarix, {"faol": None, "taklif": None}, "uz_latn"))
+        self.assertIn("ПЭТВ-2 0,50 мм (", olingan["tizim"])   # TAFSILOT da so'ralgan sim bor
 
     def test_omborda_bor_deb_tasdiqlanmagan_holda_aytmaydi(self):
         javob = "Jasur, МТН 211-6 modelining 2 dona mavjudligini tasdiqladik."

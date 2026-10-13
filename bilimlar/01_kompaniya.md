@@ -18,7 +18,7 @@
 
 ## Aloqa (mijoz so'rasa)
 - Manzil: Toshkent sh., Olmazor tumani, Yangi Olmazor ko'chasi, 7a-25
-- Telefon: +998 (88) 848-22-22
+- Telefon: +998888482222 (mijoz so'rasa aynan shu ko'rinishda yoz)
 - E-mail: info@umatic.uz
 - Sayt va katalog: umatic.uz
 - Ish vaqti: dushanba–juma, 09:00–18:00

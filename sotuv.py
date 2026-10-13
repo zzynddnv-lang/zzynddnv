@@ -978,6 +978,43 @@ def _tanlangan_bolimlar(katalog: dict[str, list[dict]], mijoz_matni: str) -> lis
     return natija
 
 
+_BILIM_BOLIMLARI = (
+    # (bilimlar faylidagi sarlavha, shu yo'nalish katalog bo'limlari)
+    ("# 1. Elektr dvigatellar", DVIGATEL_BOLIMLARI),
+    ("# 2. Nasos agregatlari", NASOS_BOLIMLARI),
+    ("# 3. Elektroizolyatsiya", IZOLYATSIYA_BOLIMLARI),
+)
+
+
+def bilimlar_tanlash(bilimlar: str, mijoz_matni: str) -> str:
+    """
+    Bilimlar bazasidan mijoz so'ragan yo'nalish bo'limi qoldiriladi (dvigatel / nasos / izolyatsiya),
+    boshqalari olib tashlanadi - so'rov kichikroq, Groq limitiga sig'adi. Yo'nalish aniq bo'lmasa - hammasi.
+    """
+    past = (mijoz_matni or "").lower()
+    kerakli = set(_katalog_bolimlari_tanlash(past))
+    if re.search(r"\d+(?:[.,]\d+)?\s*(?:kvt|квт|kw)\b", past):
+        kerakli |= set(DVIGATEL_BOLIMLARI)
+    if re.search(r"m³|м³|m3\b|м3\b|kub|куб", past):
+        kerakli |= set(NASOS_BOLIMLARI)
+    if not kerakli:
+        return bilimlar
+    natija = bilimlar
+    for i, (sarlavha, guruh) in enumerate(_BILIM_BOLIMLARI):
+        if kerakli & set(guruh):
+            continue
+        boshi = natija.find(sarlavha)
+        if boshi < 0:
+            continue
+        keyingilar = [natija.find(s, boshi + 1) for s, _ in _BILIM_BOLIMLARI[i + 1:]]
+        keyingilar = [k for k in keyingilar if k > 0]
+        oxiri = min(keyingilar) if keyingilar else natija.find("\n# ", boshi + 1)
+        if oxiri < 0:
+            oxiri = len(natija)
+        natija = natija[:boshi] + natija[oxiri:]
+    return natija
+
+
 def katalog_tanlash(katalog: dict[str, list[dict]], mijoz_matni: str) -> str:
     """Mijozga mos katalog qismi - AI ko'rsatmasi uchun matn ko'rinishida (bo'sh bo'lsa - "")."""
     qatorlar = []
@@ -1194,12 +1231,50 @@ def _model_tezligi(m: dict) -> float:
     return _son(ob)
 
 
+def _nasos_moslari(katalog: dict[str, list[dict]], past: str, limit: int) -> list[dict]:
+    """Mijoz aytgan sarf (m³/soat) va napor (m) ga eng yaqin nasoslar (har ikkisi 20% ichida)."""
+    sarf = re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:m³|м³|m3|м3|kub|куб)", past)
+    napor = re.findall(r"(?:napor|напор|head|bosim)\D{0,15}(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:metr|метр|m\b|м\b)\s*(?:napor|напор|head)?", past)
+    if not sarf:
+        return []
+    q = float(sarf[0].replace(",", "."))
+    h = next((float((a or b).replace(",", ".")) for a, b in napor if (a or b)), 0.0)
+    natija = []
+    for b in NASOS_BOLIMLARI:
+        for m in katalog.get(b, []):
+            mq, mh = _son(_xus(m, r"Подача")), _son(_xus(m, r"^Напор"))
+            if mq and abs(mq - q) <= 0.2 * q and (not h or (mh and abs(mh - h) <= 0.2 * h)):
+                natija.append((abs(mq - q) / q + (abs(mh - h) / h if h and mh else 0), m))
+    return [m for _, m in sorted(natija, key=lambda x: x[0])][:limit]
+
+
+def _sim_moslari(katalog: dict[str, list[dict]], past: str, limit: int) -> list[dict]:
+    """Emal sim: mijoz aytgan diametr (mm)."""
+    if not re.search(r"\bsim|сим\b|провод|пэтв|petv|wire|emal|эмал", past):
+        return []
+    diametrlar = {round(float(x.replace(",", ".")), 3) for x in re.findall(r"(\d+[.,]\d+)\s*(?:mm|мм)?", past)}
+
+    def diametr(m: dict) -> float:
+        # Model nomidagi diametr ustun (saytda ba'zi xususiyatlar xato: "0,60 мм" simida "Диаметр: 0,50 мм")
+        t = re.search(r"(\d+[.,]\d+)\s*мм", m["model"])
+        return round(_son(t.group(1) if t else _xus(m, r"Диаметр")), 3)
+
+    return [m for m in katalog.get("PROVOD", []) if diametr(m) in diametrlar][:limit]
+
+
 def aniq_mos_modellar(katalog: dict[str, list[dict]], mijoz_matni: str, limit: int = 3) -> list[dict]:
     """
-    Mijoz aytgan quvvat (kVt) va aylanish tezligiga (ob/min) katalogdan AYNAN mos dvigatellar.
-    AI parametrlarni boshqa modelga yopishtirib yubormasligi uchun mos model dasturda topiladi.
+    Mijoz aytgan parametrlarga katalogdan AYNAN mos mahsulotlar: dvigatel - quvvat (kVt) va aylanish (ob/min),
+    nasos - sarf (m³/soat) va napor (m), emal sim - diametr (mm).
+    AI parametrlarni boshqa modelga yopishtirib yubormasligi uchun mos mahsulot dasturda topiladi.
     """
     past = (mijoz_matni or "").lower()
+    nasos = _nasos_moslari(katalog, past, limit)
+    if nasos:
+        return nasos
+    sim = _sim_moslari(katalog, past, limit)
+    if sim:
+        return sim
     kvtlar = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:kvt|квт|kwt|kw)\b", past)]
     if not kvtlar:
         return []
@@ -1262,8 +1337,16 @@ def _model_faktlari(m: dict) -> set[float]:
 
 
 def _gaplar(matn: str) -> list[str]:
-    # "2. Variant" kabi raqamli ro'yxat bandidan keyin gap bo'linmaydi
-    return [g.strip() for g in re.split(r"(?<=[^\d\s][.!?])[ \t]+|\n+", matn or "") if g.strip()]
+    """Javobni gaplarga bo'ladi. "2. Variant" kabi ro'yxat raqami alohida gap hisoblanmaydi ("IP55." - gap oxiri)."""
+    natija = []
+    for qator in (matn or "").split("\n"):
+        bolaklar = re.split(r"(?<=[.!?])[ \t]+", qator.strip())
+        for bolak in bolaklar:
+            if natija and re.fullmatch(r"\d{1,2}[.)]", natija[-1]) and not natija[-1].endswith("\n"):
+                natija[-1] = f"{natija[-1]} {bolak}"
+            elif bolak:
+                natija.append(bolak)
+    return [g.strip() for g in natija if g.strip()]
 
 
 def fakt_xatolari(javob: str, katalog: dict[str, list[dict]], mijoz_matni: str = "",
@@ -1424,7 +1507,8 @@ def kontakt_takrorini_olib_tashlash(javob: str, oldin_soralgan: bool, til: str) 
     return " ".join(qolgan).strip() or _KONTAKT_YOPISH[til_kaliti(til)]
 
 
-_HAVOLA_REGEX = re.compile(r"https?://(?:www\.)?umatic\.uz[^\s)»\"'<>]*")
+# AI havolani bo'sh joy bilan bo'lib yozsa ("...ecv 8-25-100-11-kvt-3000-ob/min") - davomi ham havolaga kiradi
+_HAVOLA_REGEX = re.compile(r"https?://(?:www\.)?umatic\.uz[^\s)»\"'<>]*(?:\s[\w.]*-[\w.-]*/[^\s)»\"'<>]*)?")
 
 
 def havolalarni_tuzatish(javob: str, katalog: dict[str, list[dict]]) -> str:
@@ -1444,9 +1528,13 @@ def havolalarni_tuzatish(javob: str, katalog: dict[str, list[dict]]) -> str:
         if len(mos) == 1:
             return mos[0] + qoldiq
         # Havola oldidagi matnda tilga olingan model
-        oldi = javob[max(0, t.start() - 300):t.start()]
-        model = topilgan_modellar(katalog, oldi, limit=1)
-        return (model[0]["url"] if model else "https://umatic.uz") + qoldiq
+        oldi = javob[:t.start()]
+        modellar = topilgan_modellar(katalog, oldi, limit=10)
+        if not modellar:
+            return "https://umatic.uz" + qoldiq
+        # Havoladan oldin ENG OXIRIDA tilga olingan model
+        oxirgi = max(modellar, key=lambda m: max((x.start() for x in _model_naqshi(m["model"]).finditer(oldi)), default=-1))
+        return oxirgi["url"] + qoldiq
 
     return _HAVOLA_REGEX.sub(tuzat, javob or "")
 
@@ -1464,6 +1552,90 @@ def ichki_takrormi(javob: str, n: int = 4, chegara: int = 3) -> bool:
         if sanoq[k] >= chegara:
             return True
     return False
+
+
+def boshqa_mahsulotlarni_olib_tashlash(javob: str, katalog: dict[str, list[dict]], kerakli: list[dict]) -> str:
+    """
+    Mijoz aniq mahsulot so'ragan bo'lsa (model nomi yoki aniq parametr) - javobda faqat o'sha mahsulot bo'ladi:
+    boshqa katalog modellari tilga olingan gaplar olib tashlanadi. Hammasi o'chib ketsa - javob o'zgarmaydi.
+    """
+    if not kerakli:
+        return javob
+    kerakli_kalitlar = {model_kaliti(m["model"]) for m in kerakli}
+    qolgan = javob
+    for gap in _gaplar(javob):
+        modellar = topilgan_modellar(katalog, gap, limit=10)
+        if modellar and not any(model_kaliti(m["model"]) in kerakli_kalitlar for m in modellar):
+            qolgan = qolgan.replace(gap, "", 1)
+    qolgan = re.sub(r"[ \t]{2,}", " ", qolgan)
+    qolgan = re.sub(r"(?m)^[ \t]*(?:[-•*]|\d+[.)])?[ \t]*(?:\n|$)", "", qolgan).strip()
+    return qolgan if len(qolgan) >= 20 else javob
+
+
+# Mijoz kompaniyaning telefon raqamini so'rayaptimi (o'z raqamini aytayotgani emas)
+KOMPANIYA_TELEFONI = os.getenv("KOMPANIYA_TELEFONI", "+998888482222")
+_TELEFON_SOROV = re.compile(
+    r"(telefon|tel\b|nomer|raqam|номер|телефон|phone|number|aloqa|алоқа|контакт|contact|qo['‘’`]?ng['‘’`]?iroq|"
+    r"қўнғироқ|позвонить|звонить|call)[^.!?\n]{0,40}\?|"
+    r"(nomeringiz|raqamingiz|telefoningiz|номерингиз|рақамингиз|телефонингиз|ваш\s+(?:номер|телефон)|"
+    r"номер\s+телефона|your\s+(?:phone|number)|qanday\s+bog['‘’`]?lan|қандай\s+боғлан|как\s+(?:с\s+вами\s+)?связаться|"
+    r"how\s+(?:can|do)\s+i\s+(?:call|contact)|qaysi\s+raqamga|телефон\s+для\s+связи)",
+    re.IGNORECASE,
+)
+
+
+def telefon_soraldimi(matn: str) -> bool:
+    """Mijoz kompaniya bilan bog'lanish raqamini so'radimi ("telefon raqamingiz qanaqa?", "номер для связи")."""
+    if re.search(r"\+?998[\s-]?\d{2}[\s-]?\d{3}", matn or "") or re.search(
+            r"raqamim|nomerim|telefonim|рақамим|номерим|мой\s+(?:номер|телефон)|my\s+(?:phone|number)", matn or "", re.IGNORECASE):
+        return False  # mijoz o'z raqami haqida yozyapti
+    return bool(_TELEFON_SOROV.search(matn or ""))
+
+
+_KOMPANIYA_RAQAMI_REGEX = re.compile(r"\+?\(?998\)?[\s\-()]*88[\s\-()]*848[\s\-]*22[\s\-]*22")
+
+
+def telefonni_formatlash(javob: str) -> str:
+    """Kompaniya raqami qanday yozilmasin ("+998 (88) 848-22-22") - aynan +998888482222 ko'rinishiga keltiriladi."""
+    return _KOMPANIYA_RAQAMI_REGEX.sub(KOMPANIYA_TELEFONI, javob or "")
+
+
+_TELEFON_JAVOBI = {
+    "uz_latn": "📞 Bizning telefon raqamimiz: {tel}\nIsh vaqti: dushanba–juma, 09:00–18:00.",
+    "uz_cyrl": "📞 Бизнинг телефон рақамимиз: {tel}\nИш вақти: душанба–жума, 09:00–18:00.",
+    "ru": "📞 Наш номер телефона: {tel}\nВремя работы: понедельник–пятница, 09:00–18:00.",
+    "en": "📞 Our phone number: {tel}\nWorking hours: Monday–Friday, 09:00–18:00.",
+}
+_MAHSULOT_SOZLARI = re.compile(
+    r"dvigatel|двигател|motor|мотор|nasos|насос|pump|sim\b|сим\b|провод|wire|kvt|квт|kw|ob/min|об/мин|rpm|"
+    r"narx|нарх|цен|price|rasm|расм|фото|photo|model|модел", re.IGNORECASE)
+
+
+def telefon_javobi(til: str) -> str:
+    return _TELEFON_JAVOBI[til_kaliti(til)].format(tel=KOMPANIYA_TELEFONI)
+
+
+def faqat_telefon_soraldimi(matn: str) -> bool:
+    """Xabar faqat bog'lanish raqami haqida (mahsulot savoli yo'q) - AI siz darhol javob beriladi."""
+    return telefon_soraldimi(matn) and not _MAHSULOT_SOZLARI.search(matn or "")
+
+
+def mahsulot_kartasi(m: dict, til: str) -> str:
+    """Katalogdagi mahsulotning qisqa kartochkasi (AI ishlamasa ham mijoz so'ragan mahsulotni oladi)."""
+    qator = m.get("_qator", m["model"]).split(" | ", 1)[-1]
+    if til == "ru":
+        qator = qator.replace("kVt", "кВт").replace("ob/min", "об/мин").replace("m³/soat", "м³/ч")
+    elif til_kaliti(til) == "en":
+        qator = qator.replace("kVt", "kW").replace("ob/min", "rpm").replace("m³/soat", "m³/h").replace("napor", "head")
+    return f"📦 {m['model']}\n{qator.replace(' | ', ' • ')}\n🔗 {m['url']}"
+
+
+def telefonni_qoshish(javob: str) -> str:
+    """Mijoz bog'lanish raqamini so'raganda kompaniya telefoni javobda aniq bo'lsin (+998888482222)."""
+    javob = telefonni_formatlash(javob)
+    if KOMPANIYA_TELEFONI in javob:
+        return javob
+    return f"{javob.rstrip()}\n📞 {KOMPANIYA_TELEFONI}"
 
 
 def kesilganni_tozalash(javob: str) -> str:
@@ -1556,11 +1728,14 @@ _ZAXIRA_MATNLAR = {
 }
 
 
-def zaxira_javob(til: str, katalog: str) -> str:
+def zaxira_javob(til: str, katalog: str, kerakli: list[dict] = ()) -> str:
     """
     AI vaqtincha ishlamay qolganda ham mijozga FOYDALI javob (menejerga yo'naltirmasdan):
-    so'ralgan quvvatga mos katalog modellari yoki tanlash uchun kerakli parametrlar.
+    mijoz so'ragan aniq mahsulot kartochkasi, bo'lmasa so'ralgan quvvatga mos katalog modellari
+    yoki tanlash uchun kerakli parametrlar.
     """
+    if kerakli:
+        return "\n\n".join(mahsulot_kartasi(m, til) for m in list(kerakli)[:2])
     bosh, savol, umumiy = _ZAXIRA_MATNLAR[til_kaliti(til)]
     modellar = [q[2:] for q in (katalog or "").splitlines() if q.startswith("- ")][:3]
     if not modellar:

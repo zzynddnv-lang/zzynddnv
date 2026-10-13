@@ -213,7 +213,7 @@ def tanishtiruv_matni(til: str) -> str:
     return tmatn("start", til).format(kompaniya=KOMPANIYA_NOMI)
 
 
-def tizim_korsatmasi(katalog: str = "", tafsilot: str = "") -> str:
+def tizim_korsatmasi(katalog: str = "", tafsilot: str = "", mijoz_matni: str = "") -> str:
     # Ixcham yozilgan: Groq bepul tarifida bitta so'rov 7000 tokendan oshmasligi kerak
     return f"""Sen "{KOMPANIYA_NOMI}" kompaniyasining Telegramdagi AI savdo menejerisan. Kompaniya 3 yo'nalishda sotadi: ELEKTR DVIGATELLAR, NASOS AGREGATLARI, ELEKTROIZOLYATSIYA MATERIALLARI (emal sim, stator o'ram seksiyalari, kiper lenta, ish qo'lqoplari).
 Vazifang: mahsulotlarni tanishtirish, ehtiyojni aniqlash, mijozni qiziqtirib sotuvga olib borish, CRM uchun ma'lumot yig'ish.
@@ -222,12 +222,12 @@ QOIDALAR:
 1. HAR BIR javobni mijozning OXIRGI xabari qaysi tilda yozilgan bo'lsa, o'sha tilda yoz (o'zbek lotin / o'zbek kirill / rus / ingliz / boshqa til). Mijoz tilni almashtirsa - sen ham darhol almashtir. Til JORIY HOLATda ko'rsatiladi.
 2. FAQAT BILIMLAR, KATALOG va TAFSILOTdagi faktlarni ayt. Har bir raqam (kVt, ob/min, A, kg, %, V, m³/soat, m) AYNAN o'sha modelning katalog qatoridan bo'lsin - bir modelning raqamini boshqasiga yozma. Ma'lumotlarda yo'q narsa so'ralsa (kafolat, yetkazish muddati, brend nomi, sertifikat, qoldiq...) - "bu bo'yicha aniq ma'lumotni menejerimiz beradi" de, O'YLAB TOPMA. Narx, qoldiq, muddat, chegirma, kafolat, yo'q model yoki xususiyatni O'YLAB TOPMA. Modelni "katalogimizda bor" deb tanishtir, lekin "omborda bor", "mavjud", "yo'q", "mavjud emas" DEMA - omborda borligini ombor tasdiqlaydi. Saytdagi 3 yo'nalishning birortasini "sotmaymiz" dema. O'zingcha hisoblab model tavsiya qilma.
 3. {_narx_qoidasi()}
-4. FAOL SOTUVCHI BO'L, quruq so'roq qilma:
- - aniq ehtiyoj aytilmasa - 3 yo'nalishni va mos turlarni qisqa tanishtir, nima kerakligini so'ra;
- - parametr aytilsa (dvigatel: kVt, ob/min; nasos: sarf m³/soat, napor m; sim: diametr) - KATALOGdan mos modelni nomi va xususiyatlari bilan darhol taklif qil;
+4. MIJOZ SO'RAGAN MAHSULOTNI TOPIB BER:
+ - mijoz model nomini yoki parametrini aytsa (dvigatel: kVt, ob/min; nasos: sarf m³/soat, napor m; sim: diametr) - KATALOG/TAFSILOTdan AYNAN o'sha mahsulotni top va faqat u haqida yoz: model nomi, asosiy xususiyatlari (qisqa ro'yxat), sahifa havolasi. Boshqa modellar, kompaniya reklamasi, so'ralmagan ma'lumot YOZMA. Katalogda yo'q bo'lsa - shuni ochiq ayt va eng yaqin 1 ta modelni taklif qil;
+ - aniq ehtiyoj aytilmasa - nima kerakligini qisqa so'ra;
  - mexanizm yoki vazifa aytilsa (kran, konveyer, quduq, drenaj, shaxta, o'ram) - mos turni va foydasini ayt;
- - afzallik va qo'llanish sohasini FAQAT TAFSILOTdagi "QO'LLANILISHI VA AFZALLIKLARI" matnidan yoki BILIMLARdan ayt (mijoz tiliga o'girib), o'zingdan qo'shma; oxirida keyingi qadamga bitta savol.
-5. AVVAL mijozning savoliga TO'LIQ javob ber: u so'ragan HAR BIR narsaga (masalan, tok, vazn VA qayerda ishlatilishi) javob bo'lsin. Texnik ma'lumot so'ralsa - qisqa ro'yxat qilib yozish mumkin. Oddiy javob 2-5 gap. Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
+ - afzallik va qo'llanish sohasini FAQAT TAFSILOTdagi "Qo'llanilishi va afzalliklari" matnidan yoki BILIMLARdan ayt (mijoz tiliga o'girib), o'zingdan qo'shma; oxirida keyingi qadamga bitta savol.
+5. AVVAL mijozning savoliga TO'LIQ javob ber: u so'ragan HAR BIR narsaga (masalan, tok, vazn VA qayerda ishlatilishi) javob bo'lsin. Texnik ma'lumot so'ralsa - qisqa ro'yxat qilib yozish mumkin. Oddiy javob 2-5 gap, butun javob 700 belgidan oshmasin; JSON dagi xulosa va ehtiyoj - qisqa (1 gap). Salomlashma, "Rahmat/Tushundim/Ajoyib" bilan boshlama (minnatdorchilik butun suhbatda ko'pi bilan 1 marta). Suhbat boshida kompaniya taqdimoti yuborilgan - uni takrorlama.
 6. Bir savolni ko'pi bilan 1 marta qayta so'ra. Mijoz bilmasa - oldinga o't. Asosiy parametrlar va miqdor ma'lum bo'lsa narx_sorash=true.
 6b. Model va seriya nomlarini KATALOGDAGIDEK kirill harflarida yoz (АИР132М4У1, МТН 411-8, ЭЦВ 8-25-100, ПЭТВ-2) - hech qachon lotinga o'girma.
 6c. TAFSILOT va KATALOG ruscha - ularni mijoz tiliga O'GIRIB yoz, ruscha gaplarni ko'chirma (faqat model nomlari kirillda qoladi). Texnik savolga TAFSILOT bo'limidagi ma'lumot bilan javob ber: mijoz so'ragan parametrlar, "to'liq ma'lumot" so'ralsa - eng muhim 8-10 tasi qisqa ro'yxatda va 1-2 gap qo'llanilishi, oxirida mahsulot sahifasi havolasi (javob 900 belgidan oshmasin).
@@ -243,7 +243,7 @@ JSON: mahsulotlar - suhbatdagi barcha pozitsiyalarning so'nggi holati (miqdor no
 Kalitlar: javob, til, mijoz{{ism, telefon, kompaniya, lavozim, soha}}, ehtiyoj, mahsulotlar[{{nomi, parametrlar, miqdor, birlik}}], narx_sorash, buyurtma_tasdiqlandi, bosqich, harorat, menejer_kerak, menejer_sababi, xulosa.
 
 BILIMLAR:
-{BILIMLAR}
+{sotuv.bilimlar_tanlash(BILIMLAR, mijoz_matni)}
 
 KATALOG (umatic.uz; dvigatel: model | kVt | ob/min | V | IP | KPD; nasos: model | sarf | napor | kVt | ob/min):
 {katalog or "Mijoz parametr yoki tur aytganda mos modellar shu yerda beriladi. Hozircha yo'nalishlarni va turlarni tanishtir."}{chr(10) + chr(10) + "TAFSILOT (mijoz tilga olgan modellar, to'liq texnik ma'lumot):" + chr(10) + tafsilot if tafsilot else ""}"""
@@ -599,10 +599,10 @@ def _model_parametrlari(model: str) -> dict:
     (OTPM) limiti bor - kattaroq so'ralsa Groq so'rovni umuman qabul qilmaydi.
     """
     if model.startswith("qwen/"):
-        return {"reasoning_effort": "none", "reasoning_format": "hidden", "max_completion_tokens": 700}
+        return {"reasoning_effort": "none", "reasoning_format": "hidden", "max_completion_tokens": 950}
     if "gpt-oss" in model:
         # gpt-oss "low" rejimda ham qisqa fikrlaydi - fikrlash tokenlari ham shu limitga kiradi
-        return {"reasoning_effort": "low", "include_reasoning": False, "max_completion_tokens": 1200}
+        return {"reasoning_effort": "low", "include_reasoning": False, "max_completion_tokens": 2000}
     return {"max_completion_tokens": 800}
 
 
@@ -671,7 +671,8 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     tafsilot_modellari += [m for m in sotuv.topilgan_modellar(KATALOG, oxirgi_xabarlar, limit=2)
                            if m not in tafsilot_modellari][: max(0, 2 - len(tafsilot_modellari))]
     # Mijoz aytgan kVt va ob/min ga AYNAN mos modellar dasturda topiladi (AI raqamlarni adashtirmasin)
-    mos = sotuv.aniq_mos_modellar(KATALOG, mijoz_matni, limit=2)
+    # Avval joriy xabar (oldingi savoldagi parametrlar yangi savolni bosib ketmasin), keyin butun suhbat
+    mos = sotuv.aniq_mos_modellar(KATALOG, joriy_matn, limit=2) or sotuv.aniq_mos_modellar(KATALOG, mijoz_matni, limit=2)
     tafsilot_modellari += [m for m in mos if m not in tafsilot_modellari][: max(0, 3 - len(tafsilot_modellari))]
     tafsilot = "\n".join(sotuv.tafsilot_matni(m, til) for m in tafsilot_modellari)
     if mos and not tafsilot_modellari[:1] == mos[:1]:
@@ -679,7 +680,7 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
             "Mijoz parametrlariga katalogdan AYNAN mos: " + ", ".join(m["model"] for m in mos)
             + ". Model tavsiya qilsang - shularni (TAFSILOTdagi raqamlar bilan) taklif qil."]}
     messages = (
-        [{"role": "system", "content": tizim_korsatmasi(katalog, tafsilot)}]
+        [{"role": "system", "content": tizim_korsatmasi(katalog, tafsilot, mijoz_matni)}]
         + [{**m, "content": m["content"][:600]} if m.get("role") == "assistant" else m for m in tarix]
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
@@ -2001,6 +2002,14 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                 if sotuv.faqat_salommi(xabar_matni):
                     return
 
+        if sotuv.faqat_telefon_soraldimi(xabar_matni):
+            javob = sotuv.telefon_javobi(til)
+            async with YozmoqdaHolati(chat_id, bcid):
+                await asyncio.sleep(tabiiy_kutish(javob, boshlangan))
+            if await mijozga_yuborish(chat_id, bcid, javob) is None:
+                await asyncio.to_thread(db.add_message, chat_id, "assistant", javob)
+            return
+
         holat = await asyncio.to_thread(suhbat_holati, chat_id)
         boshlangan = asyncio.get_running_loop().time()
         holat["qoshimcha"] = doimiy_mijoz_korsatmasi(meta, lead, tarix)
@@ -2040,7 +2049,12 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             OXIRGI_AI_XATOSI.update(vaqt=datetime.now().strftime("%d.%m %H:%M:%S"), xato=str(xato)[:300])
             # Menejerga yo'naltirish o'rniga foydali javob: mos katalog modellari yoki kerakli parametrlar
             mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
-            zaxira = sotuv.zaxira_javob(til, sotuv.katalog_tanlash(KATALOG, mijoz_matni))
+            kerakli = (sotuv.topilgan_modellar(KATALOG, tarix_matni, limit=2)
+                       or ([holat["ishora_modeli"]] if holat.get("ishora_modeli") else [])
+                       or sotuv.aniq_mos_modellar(KATALOG, xabar_matni, limit=2))
+            zaxira = sotuv.zaxira_javob(til, sotuv.katalog_tanlash(KATALOG, mijoz_matni), kerakli)
+            if sotuv.telefon_soraldimi(xabar_matni):
+                zaxira = sotuv.telefonni_qoshish(zaxira)
             if await mijozga_yuborish(chat_id, bcid, zaxira) is None:
                 await asyncio.to_thread(db.add_message, chat_id, "assistant", zaxira)
             # Mijoz rasm so'ragan bo'lsa - AI ishlamasa ham rasm yuboriladi
@@ -2092,12 +2106,22 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         kontakt_soralgan = (bool(lead and lead["telefon"]) or any(
             m["role"] == "assistant" and re.search(r"telefon|телефон|номер", m["content"], re.IGNORECASE) for m in tarix[:-1]))
         javob = sotuv.kontakt_takrorini_olib_tashlash(javob, kontakt_soralgan, til)
+        # Mijoz aniq mahsulot so'radi (model nomi yoki aniq parametr) - javobda faqat o'sha mahsulot
+        if not re.search(r"boshqa|variant|solishtir|farq|o['‘’`]?xshash|другие|другой|вариант|сравн|аналог|other|compare|alternative",
+                         xabar_matni, re.IGNORECASE):
+            kerakli = (sotuv.topilgan_modellar(KATALOG, tarix_matni, limit=3)
+                       or ([holat["ishora_modeli"]] if holat.get("ishora_modeli") else [])
+                       or list(natija.get("_mos") or []))
+            javob = sotuv.boshqa_mahsulotlarni_olib_tashlash(javob, KATALOG, kerakli)
+        # Mijoz bog'lanish raqamini so'radi - kompaniya telefoni aniq beriladi
+        if sotuv.telefon_soraldimi(xabar_matni):
+            javob = sotuv.telefonni_qoshish(javob)
+        else:
+            javob = sotuv.telefonni_formatlash(javob)
         # Suhbatda allaqachon minnatdorchilik bildirilgan bo'lsa - har javobda "Rahmat" takrorlanmaydi
         oldin_rahmat = any(m["role"] == "assistant" and sotuv.rahmat_aytilganmi(m["content"]) for m in tarix)
         javob = sotuv.takroriy_rahmatni_olib_tashlash(javob, oldin_rahmat, natija["mijoz"]["ism"])
 
-        if len(javob) > 600:  # uzun javob model limitida o'rtada uzilib qolgan bo'lishi mumkin
-            javob = sotuv.kesilganni_tozalash(javob)
         kutish = tabiiy_kutish(javob, boshlangan)
         if kutish:
             async with YozmoqdaHolati(chat_id, bcid):
