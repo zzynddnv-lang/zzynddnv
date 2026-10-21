@@ -2403,7 +2403,14 @@ async def fon_loop():
 # =====================================================================
 
 async def handle_ping(request):
-    return web.json_response({"status": "online", "service": f"{KOMPANIYA_NOMI} savdo boti", "versiya": VERSIYA})
+    # Gemini holati (kalitning o'zi emas): tashqaridan tekshirish uchun
+    if not GEMINI_API_KEY:
+        gemini = "kalit yo'q"
+    else:
+        modellar = await gemini_modellari()
+        gemini = f"ishlayapti: {', '.join(modellar)}" if modellar else "kalit ishlamadi"
+    return web.json_response({"status": "online", "service": f"{KOMPANIYA_NOMI} savdo boti", "versiya": VERSIYA,
+                              "gemini": gemini})
 
 
 async def start_web_server():
