@@ -13,6 +13,9 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      # Google Gemini bepul kaliti (aistudio.google.com -> Get API key) - asosiy AI, Groq zaxira bo'lib qoladi
+      - key: GEMINI_API_KEY
+        sync: false
       - key: OWNER_ID
         sync: false
       - key: SKLAD_CHAT_ID

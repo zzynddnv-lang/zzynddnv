@@ -64,6 +64,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 SHEETS_KALIT = os.getenv("SHEETS_KALIT", "").strip() or (
     hashlib.sha256(f"umatic-sheets:{BOT_TOKEN}".encode()).hexdigest()[:32] if BOT_TOKEN else "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Google Gemini (bepul kalit: aistudio.google.com -> Get API key). Bo'lsa - asosiy AI, limit tugasa Groq ga o'tiladi.
+GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip()   # bo'sh - bot eng mos Flash modelni o'zi tanlaydi
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta"
 KOMPANIYA_NOMI = sotuv.KOMPANIYA_NOMI
 
 
@@ -607,11 +611,101 @@ def _model_parametrlari(model: str) -> dict:
     return {"max_completion_tokens": 800}
 
 
+# ---------------- Google Gemini ----------------
+
+_GEMINI_HOLAT: dict = {"modellar": None, "xato": ""}
+
+
+def _gemini_modelni_tanlash(nomlar: list[str]) -> list[str]:
+    """
+    Kalitga ochiq modellar ichidan eng yangi barqaror Flash va Flash-Lite (alohida limit - zaxira).
+    preview/tts/image/live kabi maxsus modellar tanlanmaydi.
+    """
+    def versiya(nom: str) -> tuple:
+        return tuple(int(x) for x in re.findall(r"\d+", nom.split("-flash")[0])) or (0,)
+
+    toza = [n for n in nomlar if re.fullmatch(r"gemini-\d+(?:\.\d+)?-flash(?:-lite)?", n)]
+    flash = sorted((n for n in toza if not n.endswith("-lite")), key=versiya, reverse=True)
+    lite = sorted((n for n in toza if n.endswith("-lite")), key=versiya, reverse=True)
+    return flash[:1] + lite[:1]
+
+
+async def gemini_modellari() -> list[str]:
+    """Ishlatiladigan Gemini modellari (bir marta aniqlanadi). Kalit yo'q yoki noto'g'ri bo'lsa - bo'sh."""
+    if not GEMINI_API_KEY:
+        return []
+    if GEMINI_MODEL:
+        return [m.strip() for m in GEMINI_MODEL.split(",") if m.strip()]
+    if _GEMINI_HOLAT["modellar"] is not None:
+        return _GEMINI_HOLAT["modellar"]
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{GEMINI_URL}/models", params={"key": GEMINI_API_KEY, "pageSize": 200},
+                                   timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    _GEMINI_HOLAT["xato"] = f"{resp.status}: {str(data.get('error', {}).get('message', ''))[:150]}"
+                    logging.error("Gemini kaliti ishlamadi: %s", _GEMINI_HOLAT["xato"])
+                    return []  # keyingi xabarda qayta tekshiriladi
+        nomlar = [m["name"].split("/", 1)[-1] for m in data.get("models", [])
+                  if "generateContent" in m.get("supportedGenerationMethods", [])]
+        tanlangan = _gemini_modelni_tanlash(nomlar) or ["gemini-2.5-flash"]
+        _GEMINI_HOLAT.update(modellar=tanlangan, xato="")
+        logging.info("Gemini modellari: %s", ", ".join(tanlangan))
+        return tanlangan
+    except Exception as e:
+        _GEMINI_HOLAT["xato"] = str(e)[:150]
+        logging.warning("Gemini modellarini aniqlab bo'lmadi: %s", e)
+        return []
+
+
+async def ai_modellar_zanjiri() -> list[str]:
+    """AI modellari navbati: Gemini (kalit bo'lsa) -> Groq modellari."""
+    gemini = [f"gemini:{m}" for m in await gemini_modellari()]
+    return list(dict.fromkeys(gemini + [MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR))
+
+
+class GeminiXatosi(Exception):
+    """Gemini HTTP xatosi (429 - limit; matnida status kodi bor, _limit_xatosimi uni taniydi)."""
+
+
+async def _gemini_sorov(model: str, messages: list) -> dict | None:
+    """Gemini (OpenAI bilan mos endpoint) dan JSON javob."""
+    body = {
+        "model": model, "messages": messages, "temperature": 0.4, "max_tokens": 2000,
+        "response_format": {"type": "json_object"}, "reasoning_effort": "low",
+    }
+    async with aiohttp.ClientSession() as session:
+        for urinish in range(2):
+            async with session.post(f"{GEMINI_URL}/openai/chat/completions", json=body,
+                                    headers={"Authorization": f"Bearer {GEMINI_API_KEY}"},
+                                    timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                data = await resp.json(content_type=None)
+            if resp.status == 400 and urinish == 0:
+                # Model biror parametrni qo'llamasa - oddiy so'rov bilan qayta
+                body.pop("reasoning_effort", None)
+                body.pop("response_format", None)
+                continue
+            if resp.status != 200:
+                matn = str(data.get("error", {}).get("message", data) if isinstance(data, dict) else data)[:300]
+                if resp.status == 429:
+                    raise GeminiXatosi(f"429 rate_limit Gemini: {matn}")
+                raise GeminiXatosi(f"{resp.status} Gemini: {matn}")
+            break
+    tanlov = (data.get("choices") or [{}])[0]
+    natija = sotuv.ai_natijasini_ajratish((tanlov.get("message") or {}).get("content") or "")
+    if natija is not None and tanlov.get("finish_reason") == "length":
+        natija["javob"] = sotuv.kesilganni_tozalash(natija["javob"])
+    return natija
+
+
 async def _groq_sorov(model: str, messages: list) -> dict | None:
     """
     Groq Structured Outputs (qat'iy JSON sxema). Model sxemaga mos JSON bera olmasa (Groq 400
     json_validate_failed), oddiy JSON rejimida qayta so'raladi - natija baribir dasturda tekshiriladi.
     """
+    if model.startswith("gemini:"):
+        return await _gemini_sorov(model.split(":", 1)[1], messages)
     umumiy = dict(model=model, temperature=0.4, messages=messages, **_model_parametrlari(model))
     try:
         resp = await groq_chat.chat.completions.create(
@@ -689,7 +783,7 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
         + [{**m, "content": m["content"][:600]} if m.get("role") == "assistant" else m for m in tarix]
         + [{"role": "system", "content": holat_matni(holat, birinchi, til)}]
     )
-    modellar = list(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR))
+    modellar = await ai_modellar_zanjiri()
     # Narxli taklif yuborilgan bo'lsagina AI undagi raqamlarni aytishi mumkin
     taklif_bor = holat.get("taklif") is not None and bool(holat["taklif"]["narxlar"])
     oxirgi_xato = None
@@ -1672,6 +1766,15 @@ async def export_komandasi(message: types.Message):
 
 
 @dp.message(Command("stats"), EgaFilter())
+async def gemini_holati() -> str:
+    if not GEMINI_API_KEY:
+        return "ulanmagan (Render → Environment ga GEMINI_API_KEY qo'shing)"
+    modellar = await gemini_modellari()
+    if modellar:
+        return f"ishlayapti ✅ ({h(', '.join(modellar))})"
+    return f"❌ kalit ishlamadi: {h(_GEMINI_HOLAT['xato'] or 'nomalum xato')}"
+
+
 async def stats_komandasi(message: types.Message):
     stats = db.get_stats()
     sheets = await sheets_holati()
@@ -1681,8 +1784,9 @@ async def stats_komandasi(message: types.Message):
         f"✅ Buyurtma tasdiqlagan suhbatlar: <b>{stats['completed_chats']}</b>\n"
         f"⏳ Javob kutayotgan narx so'rovlari: <b>{len(db.get_faol_sorovlar())}</b>\n\n"
         f"🏷 Kod versiyasi: <code>{h(VERSIYA)}</code>\n"
-        f"🧠 AI modellari: <code>{h(', '.join(dict.fromkeys([MODEL] + ZAXIRA_MODELLAR + ASOSIY_ZANJIR)))}</code>\n"
+        f"🧠 AI modellari: <code>{h(', '.join(await ai_modellar_zanjiri()))}</code>\n"
         f"🔑 Groq kaliti: {'bor ✅' if GROQ_API_KEY else 'YOQ ❌'}\n"
+        f"✨ Gemini: {await gemini_holati()}\n"
         f"⚠️ Oxirgi AI xatosi: {h(OXIRGI_AI_XATOSI['vaqt'] + ' ' + OXIRGI_AI_XATOSI['xato']) if OXIRGI_AI_XATOSI['xato'] else 'yo`q ✅'}\n"
         f"📚 Bilimlar: {len(BILIMLAR)} belgi\n"
         f"🏬 Ombor chati: <code>{SKLAD_CHAT_ID if SKLAD_CHAT_ID is not None else 'egalar'}</code>\n"
@@ -1804,6 +1908,27 @@ async def rasmni_tahlil_qilish(file_id: str) -> str:
         jpeg = await asyncio.to_thread(_jpegga, xom.read() if hasattr(xom, "read") else xom)
         if not jpeg:
             return ""
+        gemini = await gemini_modellari()
+        if gemini:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{GEMINI_URL}/openai/chat/completions",
+                        headers={"Authorization": f"Bearer {GEMINI_API_KEY}"},
+                        json={"model": gemini[0], "temperature": 0.1, "max_tokens": 800, "messages": [{"role": "user", "content": [
+                            {"type": "text", "text": sotuv.RASM_TAHLIL_KORSATMASI},
+                            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
+                        ]}]},
+                        timeout=aiohttp.ClientTimeout(total=60),
+                    ) as r:
+                        d = await r.json(content_type=None)
+                if r.status == 200:
+                    matn = ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                    if matn.strip():
+                        return re.sub(r"\s+", " ", matn).strip()[:700]
+                logging.warning("Gemini rasmni tahlil qilmadi (%s), Groq sinaladi.", r.status)
+            except Exception as e:
+                logging.warning("Gemini rasm tahlilida xato: %s", e)
         resp = await groq_chat.chat.completions.create(
             model=RASM_MODELI,
             temperature=0.1,

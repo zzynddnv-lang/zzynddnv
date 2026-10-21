@@ -1598,6 +1598,82 @@ class SuhbatYakuniTest(unittest.TestCase):
         self._tekshir()
         self.assertEqual(self.egaga, [])
 
+class GeminiTest(unittest.TestCase):
+    """Gemini: kalit bo'lsa asosiy AI, limit tugasa Groq; model o'zi tanlanadi."""
+
+    def setUp(self):
+        b._GEMINI_HOLAT.update(modellar=None, xato="")
+        self.addCleanup(b._GEMINI_HOLAT.update, modellar=None, xato="")
+
+    def test_eng_yangi_barqaror_flash_tanlanadi(self):
+        nomlar = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
+                  "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-flash-image", "gemini-2.5-flash-preview-tts"]
+        self.assertEqual(b._gemini_modelni_tanlash(nomlar), ["gemini-3-flash", "gemini-2.5-flash-lite"])
+
+    def test_kalitsiz_faqat_groq(self):
+        with mock.patch.object(b, "GEMINI_API_KEY", ""):
+            zanjir = asyncio.run(b.ai_modellar_zanjiri())
+        self.assertFalse(any(m.startswith("gemini:") for m in zanjir))
+        self.assertIn("openai/gpt-oss-120b", zanjir)
+
+    def test_kalit_bolsa_gemini_birinchi(self):
+        with mock.patch.object(b, "GEMINI_API_KEY", "test-kalit"), mock.patch.object(b, "GEMINI_MODEL", "gemini-2.5-flash"):
+            zanjir = asyncio.run(b.ai_modellar_zanjiri())
+        self.assertEqual(zanjir[0], "gemini:gemini-2.5-flash")
+        self.assertIn("openai/gpt-oss-120b", zanjir)  # Groq zaxira bo'lib qoladi
+
+    def test_gemini_limitda_bolsa_groq_javob_beradi(self):
+        chaqirilgan = []
+
+        async def soxta(model, messages):
+            chaqirilgan.append(model)
+            if model.startswith("gemini:"):
+                raise b.GeminiXatosi("429 rate_limit Gemini: quota")
+            return sotuv.ai_natijasini_ajratish(ai_json(javob="Groq javobi: МТН 211-6 mos keladi."))
+
+        with mock.patch.object(b, "GEMINI_API_KEY", "test-kalit"), mock.patch.object(b, "GEMINI_MODEL", "gemini-2.5-flash"), \
+                mock.patch.object(b, "_groq_sorov", soxta):
+            n = asyncio.run(b.ai_javob([{"role": "user", "content": "kran dvigateli kerak"}], {"faol": None, "taklif": None}))
+        self.assertEqual(chaqirilgan[0], "gemini:gemini-2.5-flash")
+        self.assertIn("Groq javobi", n["javob"])
+
+    def test_gemini_sorovi_va_javobi(self):
+        yuborilgan = {}
+
+        class Javob:
+            status = 200
+
+            async def json(self, content_type=None):
+                return {"choices": [{"finish_reason": "stop", "message": {"content": ai_json(javob="Gemini javobi")}}]}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+        class Sessiya:
+            def __init__(self, *a, **kw):
+                pass
+
+            def post(self, url, json=None, headers=None, **kw):
+                yuborilgan.update(url=url, body=json, headers=headers)
+                return Javob()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+        with mock.patch.object(b, "GEMINI_API_KEY", "test-kalit"), mock.patch.object(b.aiohttp, "ClientSession", Sessiya):
+            n = asyncio.run(b._groq_sorov("gemini:gemini-2.5-flash", [{"role": "user", "content": "salom"}]))
+        self.assertEqual(n["javob"], "Gemini javobi")
+        self.assertTrue(yuborilgan["url"].endswith("/v1beta/openai/chat/completions"))
+        self.assertEqual(yuborilgan["body"]["model"], "gemini-2.5-flash")
+        self.assertEqual(yuborilgan["headers"]["Authorization"], "Bearer test-kalit")
+        self.assertTrue(b._limit_xatosimi(b.GeminiXatosi("429 rate_limit Gemini: quota")))
+
 class AiFallbackTest(unittest.TestCase):
     def test_narx_aytsa_xavfsiz_matn(self):
         """AI ikki marta narx o'ylab topsa - mijozga xavfsiz matn ketadi."""

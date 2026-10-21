@@ -85,6 +85,7 @@ pip install -r requirements.txt
 |---|---|
 | `BOT_TOKEN` | @BotFather dan olingan token |
 | `GROQ_API_KEY` | https://console.groq.com/keys |
+| `GEMINI_API_KEY` (tavsiya, bepul) | https://aistudio.google.com → **Get API key** → **Create API key**. Bo'lsa bot avval Gemini dan javob oladi, limiti tugasa Groq ga o'tadi. Holatini botda `/stats` ko'rsatadi |
 | `OWNER_ID` | Egalar/menejerlar Telegram ID si (botga `/start` yuborsangiz ko'rsatiladi) |
 | `TAKLIF_REJIMI` | `mavjudlik` (standart) — ombor mavjudlikni tasdiqlagach PDF; `narx` — ombor narx kiritadi; `darhol` — tekshiruvsiz PDF |
 | `SKLAD_CHAT_ID` | Faqat `NARX_OMBORDAN=1` da: ombor mas'uli yoki ombor guruhi chat ID si (guruhda `/chatid`) |
