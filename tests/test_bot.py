@@ -1157,6 +1157,23 @@ class TestchiXatolariTest(unittest.TestCase):
         javob = "АИР132М4У1 - 11 kVt, 1460 ob/min, 380/660 V, IP55. Batafsil: https://umatic.uz/magazin/product/air132"
         self.assertIn("elektrodvigatel-air132m4u1", sotuv.havolalarni_tuzatish(javob, b.KATALOG))
 
+    def test_malumot_soralganda_avtomatik_taklif_qoshilmaydi(self):
+        self.ai_javobi = "АИР132М4У1 — 11 kVt, 1460 ob/min."
+        poz = [{"nomi": "АИР132М4У1", "parametrlar": "11 kVt, 1460 ob/min", "miqdor": 2, "birlik": "dona"}]
+
+        async def soxta_ai(tarix, holat, til="uz_latn"):
+            n = sotuv.ai_natijasini_ajratish(ai_json(javob=self.ai_javobi, mahsulotlar=poz, narx_sorash=True))
+            n["_birinchi"], n["til"] = False, til
+            return n
+
+        with mock.patch.object(b, "ai_javob", soxta_ai):
+            self._yoz("АИР132М4У1 ning vazni qancha?")
+        self.assertNotIn(sotuv.matn("mavjudlik_tekshirilmoqda", "uz_latn"), self.xabarlar[-1][1])
+        self.assertIsNone(db.get_faol_sorov(70))                  # omborga so'rov yuborilmadi
+        with mock.patch.object(b, "ai_javob", soxta_ai):
+            self._yoz("yaxshi, 2 dona olaman")
+        self.assertIsNotNone(db.get_faol_sorov(70))               # endi - yuborildi
+
     def test_tilni_soraganda_ozgaradi_va_saqlanadi(self):
         self._yoz("salom, dvigatel kerak")
         self._yoz("rus tilida gapiring")
@@ -1795,6 +1812,32 @@ class FaktTekshiruviTest(unittest.TestCase):
         with mock.patch.object(b, "_groq_sorov", soxta_sorov):
             asyncio.run(b.ai_javob(tarix, {"faol": None, "taklif": None}, "uz_latn"))
         self.assertIn("ПЭТВ-2 0,50 мм (", olingan["tizim"])   # TAFSILOT da so'ralgan sim bor
+
+    def test_mijoz_rad_etsa_oldingi_modellar_qaytarilmaydi(self):
+        tarix = [{"role": "user", "content": "kran uchun dvigatel kerak"},
+                 {"role": "assistant", "content": "МТН 112-6 va МТН 311-8 mos keladi. Qaysi biri kerak?"}]
+        rad = sotuv.rad_etilgan_modellar(self.K, "yo'q, boshqasini qarab bering", tarix)
+        self.assertEqual({m["model"] for m in rad}, {"МТН 112-6", "МТН 311-8"})
+        self.assertEqual(sotuv.rad_etilgan_modellar(self.K, "МТН 211-6 bormi?", tarix), [])  # o'zi model aytdi
+        self.assertEqual(sotuv.rad_etilgan_modellar(self.K, "yaxshi, rahmat", tarix), [])
+        javob = "МТН 112-6 ham yaxshi variant. МТН 211-6 — 7,5 kVt, 1000 ob/min. Shu mos keladimi?"
+        tozalangan = sotuv.rad_etilganlarni_olib_tashlash(javob, self.K, rad)
+        self.assertNotIn("МТН 112-6", tozalangan)
+        self.assertIn("МТН 211-6", tozalangan)
+
+    def test_agar_gaplari_cheklanadi(self):
+        javob = ("АИР90L6У1 — 1,5 kVt, 1000 ob/min. Agar sizga flanesli kerak bo'lsa, ayting. "
+                 "Agar portlashdan himoya kerak bo'lsa, ВА seriyasi bor. Xohlasangiz, rasmini yuboraman.")
+        natija = sotuv.agar_gaplarini_cheklash(javob)
+        self.assertIn("Agar sizga flanesli", natija)
+        self.assertNotIn("portlashdan", natija)
+        self.assertNotIn("Xohlasangiz", natija)
+
+    def test_xarid_niyati(self):
+        for matn in ("narxi qancha?", "2 dona olaman", "taklif yuboring", "Сколько стоит?", "I want to buy 3 pcs"):
+            self.assertTrue(sotuv.xarid_niyatimi(matn), matn)
+        for matn in ("АИР132М4У1 haqida ma'lumot bering", "vazni qancha?", "rasmini yuboring"):
+            self.assertFalse(sotuv.xarid_niyatimi(matn), matn)
 
     def test_omborda_bor_deb_tasdiqlanmagan_holda_aytmaydi(self):
         javob = "Jasur, МТН 211-6 modelining 2 dona mavjudligini tasdiqladik."

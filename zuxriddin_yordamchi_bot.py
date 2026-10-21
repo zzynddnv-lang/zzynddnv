@@ -237,6 +237,7 @@ QOIDALAR:
 9. menejer_kerak=true FAQAT: chegirma, bilimlarda javobi yo'q texnik savol, shikoyat, qo'ng'iroq/uchrashuv so'rovi.
 10. buyurtma_tasdiqlandi=true faqat mijoz yuborilgan taklifni aniq qabul qilsa.
 11. Ism va telefonni suhbat boshida va o'rtasida SO'RAMA. Faqat mijoz qaror qilgandan keyin (model tanladi, taklif/narx so'radi, buyurtma bermoqchi) bir marta, majburiy emasligini aytib so'ra: "Xohlasangiz, ismingiz va telefon raqamingizni qoldiring - majburiy emas". Bermasa - qayta so'rama. Doimiy mijoz haqidagi ko'rsatma JORIY HOLATda beriladi.
+13. Mijozning JAVOBIGA qarab javob ber: u "yo'q", "boshqasi", "to'g'ri kelmaydi" desa - oldin taklif qilgan modellaringni QAYTA TAKLIF QILMA, katalogdan boshqasini top yoki nima mos kelmaganini so'ra. Bitta savolga - bitta aniq javob, so'ralmagan ma'lumot qo'shma. "Agar ... bo'lsa", "xohlasangiz" kabi shartli gaplarni ko'pi bilan 1 marta ishlat - to'g'ridan-to'g'ri ayt.
 12. Mijoz "bu", "shu motor", "этот" desa yoki bot xabariga javoban yozsa - gap o'sha ko'rsatilgan model haqida: "qaysi model?" deb qayta so'rama, shu model haqida to'liq javob ber.
 
 JSON: mahsulotlar - suhbatdagi barcha pozitsiyalarning so'nggi holati (miqdor noma'lum = 0); mijoz - faqat mijoz o'zi aytgani; xulosa - menejer uchun 1-2 gap.
@@ -662,6 +663,10 @@ async def ai_javob(tarix: list, holat: dict, til: str = "uz_latn") -> dict:
     # Katalogdan faqat mijoz so'roviga mos qism (token tejash -> limitga kamroq urilish -> tezroq javob)
     mijoz_matni = " ".join(m["content"] for m in tarix if m.get("role") == "user")
     katalog = sotuv.katalog_tanlash(KATALOG, mijoz_matni)
+    if holat.get("rad_etilgan"):  # mijoz rad etgan modellar AI ga taklif uchun berilmaydi
+        rad_nomlar = {m["model"] for m in holat["rad_etilgan"]}
+        katalog = "\n".join(q for q in katalog.splitlines()
+                            if not (q.startswith("- ") and q[2:].split(" | ")[0] in rad_nomlar))
     # Mijoz (yoki bot oxirgi javobida) tilga olingan aniq modellar - to'liq texnik ma'lumot
     oxirgi_xabarlar = " ".join(m["content"] for m in tarix[-3:])
     joriy_matn = tarix[-1]["content"] if tarix and tarix[-1].get("role") == "user" else ""
@@ -2014,6 +2019,14 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         boshlangan = asyncio.get_running_loop().time()
         holat["qoshimcha"] = doimiy_mijoz_korsatmasi(meta, lead, tarix)
         holat["mijoz_xabari"] = xabar_matni
+        # Mijoz "yo'q, boshqasini ko'rsat" desa - oldin taklif qilingan modellar qayta taklif qilinmaydi
+        rad = sotuv.rad_etilgan_modellar(KATALOG, xabar_matni, tarix[:-1])
+        if rad:
+            holat["rad_etilgan"] = rad
+            holat["qoshimcha"].append(
+                "Mijoz oldingi taklifni rad etdi: " + ", ".join(m["model"] for m in rad)
+                + ". Bularni QAYTA taklif qilma - katalogdan BOSHQA mos model taklif qil yoki nima mos kelmaganini so'ra."
+            )
         # "bu motor haqida" - qaysi model ekanini dastur aniqlaydi (bot qayta so'rab o'tirmasin)
         if not sotuv.topilgan_modellar(KATALOG, tarix_matni, limit=1) and sotuv.ishora_bormi(xabar_matni):
             ishora = sotuv.oxirgi_korsatilgan_model(KATALOG, tarix[:-1])
@@ -2052,7 +2065,12 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
             kerakli = (sotuv.topilgan_modellar(KATALOG, tarix_matni, limit=2)
                        or ([holat["ishora_modeli"]] if holat.get("ishora_modeli") else [])
                        or sotuv.aniq_mos_modellar(KATALOG, xabar_matni, limit=2))
-            zaxira = sotuv.zaxira_javob(til, sotuv.katalog_tanlash(KATALOG, mijoz_matni), kerakli)
+            zaxira = sotuv.zaxira_javob(til, sotuv.katalog_tanlash(KATALOG, mijoz_matni), kerakli,
+                                        holat.get("rad_etilgan") or [])
+            # Bir xil tayyor matn qayta-qayta yuborilmasin
+            oldingi_bot = [m["content"] for m in tarix if m.get("role") == "assistant"][-3:]
+            if sotuv.takrorlanganmi(zaxira, oldingi_bot, 0.8):
+                zaxira = tmatn("ai_xato", til)
             if sotuv.telefon_soraldimi(xabar_matni):
                 zaxira = sotuv.telefonni_qoshish(zaxira)
             if await mijozga_yuborish(chat_id, bcid, zaxira) is None:
@@ -2096,7 +2114,10 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
         javob = sotuv.takroriy_menejerni_olib_tashlash(javob, oldin_menejer, sotuv.narx_savolimi(xabar_matni))
 
         # AI qo'shimcha parametr so'rab turib qolsa ham: asosiy ma'lumot yetarli bo'lsa - narx so'rovi yuboriladi
-        if not natija["narx_sorash"] and sotuv.narx_sorash_mumkinmi(natija["mahsulotlar"]):
+        xarid = sotuv.xarid_niyatimi(xabar_matni)
+        if natija["narx_sorash"] and not xarid and not holat.get("faol"):
+            natija["narx_sorash"] = False  # mijoz faqat ma'lumot so'radi - omborga so'rov va PDF kerak emas
+        if xarid and not natija["narx_sorash"] and sotuv.narx_sorash_mumkinmi(natija["mahsulotlar"]):
             kalit = sotuv.mahsulotlar_kaliti(natija["mahsulotlar"])
             if kalit not in [r["kalit"] for r in (holat.get("faol"), holat.get("taklif")) if r]:
                 natija["narx_sorash"] = True
@@ -2113,6 +2134,8 @@ async def xabarni_qayta_ishlash(message: types.Message, is_business: bool = True
                        or ([holat["ishora_modeli"]] if holat.get("ishora_modeli") else [])
                        or list(natija.get("_mos") or []))
             javob = sotuv.boshqa_mahsulotlarni_olib_tashlash(javob, KATALOG, kerakli)
+        javob = sotuv.rad_etilganlarni_olib_tashlash(javob, KATALOG, holat.get("rad_etilgan") or [])
+        javob = sotuv.agar_gaplarini_cheklash(javob)
         # Mijoz bog'lanish raqamini so'radi - kompaniya telefoni aniq beriladi
         if sotuv.telefon_soraldimi(xabar_matni):
             javob = sotuv.telefonni_qoshish(javob)

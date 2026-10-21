@@ -1638,6 +1638,84 @@ def telefonni_qoshish(javob: str) -> str:
     return f"{javob.rstrip()}\n📞 {KOMPANIYA_TELEFONI}"
 
 
+# ---------- Mijozning javobiga qarab: xarid niyati, rad etish, "agar..." gaplar ----------
+
+_XARID_NIYATI = re.compile(
+    r"narx|нарх|nechpul|nech\s*pul|qancha\s+turadi|қанча\s+туради|taklif|таклиф|buyurtma|буюртма|olaman|оламан|"
+    r"olmoqchi|sotib\s+ol|сотиб\s+ол|zakaz|заказ|цен|стоимост|сколько\s+стоит|предложени|купить|куплю|возьму|"
+    r"счёт|счет|schyot|hisob[-\s]?faktura|price|quote|offer|buy|order|invoice|"
+    r"\b\d+\s*(?:dona|ta\b|та\b|дона|шт|штук|pcs|pieces|komplekt|комплект)",
+    re.IGNORECASE,
+)
+
+
+def xarid_niyatimi(matn: str) -> bool:
+    """Mijoz narx / taklif / buyurtma so'radimi yoki miqdor aytdimi (shunda omborga so'rov va PDF)."""
+    return bool(_XARID_NIYATI.search(matn or ""))
+
+
+_RAD_REGEX = re.compile(
+    r"boshqa|бошқа|башка|yo['‘’`]?q\b|йўқ|йук|to['‘’`]?g['‘’`]?ri\s+kelmaydi|mos\s+(?:emas|kelmaydi)|kerak\s+emas|"
+    r"тўғри\s+келмайди|мос\s+(?:эмас|келмайди)|керак\s+эмас|другой|другую|другие|иное|не\s+подходит|не\s+то\b|"
+    r"не\s+нужно|не\s+нужен|\bнет\b|another|other|not\s+(?:this|suitable|what)|doesn['’]t\s+fit|\bno\b",
+    re.IGNORECASE,
+)
+
+
+def rad_etilgan_modellar(katalog: dict[str, list[dict]], matn: str, tarix: list[dict]) -> list[dict]:
+    """
+    Mijoz "yo'q, boshqasini ko'rsat" desa - bot oxirgi javob(lar)ida taklif qilgan modellar (rad etilgan).
+    Mijozning o'zi shu xabarda model aytgan bo'lsa (u o'shani xohlayapti) - bo'sh.
+    """
+    if not _RAD_REGEX.search(matn or "") or topilgan_modellar(katalog, matn, limit=1):
+        return []
+    natija: list[dict] = []
+    for xabar in reversed(tarix):
+        if xabar.get("role") == "user":
+            break
+        for m in topilgan_modellar(katalog, xabar.get("content", ""), limit=10):
+            if m not in natija:
+                natija.append(m)
+    return natija
+
+
+def rad_etilganlarni_olib_tashlash(javob: str, katalog: dict[str, list[dict]], rad: list[dict]) -> str:
+    """Mijoz rad etgan modellarni AI yana taklif qilsa - o'sha gaplar olib tashlanadi."""
+    if not rad:
+        return javob
+    rad_kalitlar = {model_kaliti(m["model"]) for m in rad}
+    qolgan = javob
+    for gap in _gaplar(javob):
+        modellar = topilgan_modellar(katalog, gap, limit=10)
+        if modellar and all(model_kaliti(m["model"]) in rad_kalitlar for m in modellar):
+            qolgan = qolgan.replace(gap, "", 1)
+    qolgan = re.sub(r"[ \t]{2,}", " ", qolgan)
+    qolgan = re.sub(r"(?m)^[ \t]*(?:[-•*]|\d+[.)])?[ \t]*(?:\n|$)", "", qolgan).strip()
+    return qolgan if len(qolgan) >= 20 else javob
+
+
+_AGAR_REGEX = re.compile(
+    r"^\s*(?:agar|агар|если|if)\b|(?:kerak\s+bo['‘’`]?lsa|xohlasangiz|istasangiz|керак\s+бўлса|хоҳласангиз|"
+    r"если\s+(?:нужно|хотите|вам)|if\s+you\s+(?:need|want|like))",
+    re.IGNORECASE,
+)
+
+
+def agar_gaplarini_cheklash(javob: str, ruxsat: int = 1) -> str:
+    """
+    "Agar ... bo'lsa", "Xohlasangiz ..." kabi shartli taklif gaplari ko'pi bilan 1 ta qoladi - bot to'g'ridan-to'g'ri
+    javob bersin, "agar, agar, agar" deb aylantirmasin. Savol bilan tugagan gap saqlanadi.
+    """
+    sanoq, qolgan = 0, javob
+    for gap in _gaplar(javob):
+        if _AGAR_REGEX.search(gap):
+            sanoq += 1
+            if sanoq > ruxsat and not gap.rstrip().endswith("?"):
+                qolgan = qolgan.replace(gap, "", 1)
+    qolgan = re.sub(r"[ \t]{2,}", " ", qolgan).strip()
+    return qolgan if len(qolgan) >= 20 else javob
+
+
 def kesilganni_tozalash(javob: str) -> str:
     """AI javobi token limitida o'rtada uzilib qolgan bo'lsa - oxirgi to'liq gap yoki qatorgacha qisqartiriladi."""
     matn = (javob or "").rstrip()
@@ -1728,7 +1806,7 @@ _ZAXIRA_MATNLAR = {
 }
 
 
-def zaxira_javob(til: str, katalog: str, kerakli: list[dict] = ()) -> str:
+def zaxira_javob(til: str, katalog: str, kerakli: list[dict] = (), rad: list[dict] = ()) -> str:
     """
     AI vaqtincha ishlamay qolganda ham mijozga FOYDALI javob (menejerga yo'naltirmasdan):
     mijoz so'ragan aniq mahsulot kartochkasi, bo'lmasa so'ralgan quvvatga mos katalog modellari
@@ -1737,7 +1815,9 @@ def zaxira_javob(til: str, katalog: str, kerakli: list[dict] = ()) -> str:
     if kerakli:
         return "\n\n".join(mahsulot_kartasi(m, til) for m in list(kerakli)[:2])
     bosh, savol, umumiy = _ZAXIRA_MATNLAR[til_kaliti(til)]
-    modellar = [q[2:] for q in (katalog or "").splitlines() if q.startswith("- ")][:3]
+    rad_nomlar = {m["model"] for m in rad}
+    modellar = [q[2:] for q in (katalog or "").splitlines()
+                if q.startswith("- ") and q[2:].split(" | ")[0] not in rad_nomlar][:3]
     if not modellar:
         return umumiy
     qatorlar = []
